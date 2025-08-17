@@ -1,0 +1,6 @@
+# Node
+node_modules/
+build/
+
+# Chatbot secrets
+src/chatbot/*.json
