@@ -3,25 +3,13 @@
  * @param {Object} election - Đối tượng cuộc bầu cử
  * @returns {string} - Trạng thái: upcoming, active, completed, unknown
  */
-export const getElectionStatus = (election) => {
-  if (!election) return 'unknown';
-  
-  // Kiểm tra xem cuộc bầu cử có bị đánh dấu hoàn thành không
-  if (election.isCompleted === true || election.status === 'completed') {
-    return 'completed';
-  }
-  
+export function getElectionStatus(election) {
+  if (election.status === 'completed') return 'completed';
   const now = new Date();
-  const startTime = new Date(election.startTime);
-  const endTime = new Date(election.endTime);
-  
-  // Kiểm tra thời gian hiện tại so với thời gian bắt đầu và kết thúc
-  if (now < startTime) return 'upcoming';
-  if (now >= startTime && now <= endTime) return 'active';
-  if (now > endTime) return 'completed';
-  
-  return 'unknown';
-};
+  if (now < new Date(election.startTime)) return 'upcoming';
+  if (now > new Date(election.endTime)) return 'completed';
+  return 'active';
+}
 
 /**
  * Lấy màu tương ứng với trạng thái cuộc bầu cử

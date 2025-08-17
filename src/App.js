@@ -1,10 +1,13 @@
 import React, { useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { ThemeProvider, createTheme } from '@mui/material/styles';
-import { CssBaseline, Box } from '@mui/material';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { ThemeProvider, createTheme, CssBaseline, Box } from '@mui/material';
 import { LocalizationProvider } from '@mui/x-date-pickers';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { vi } from 'date-fns/locale';
+import { Web3ReactProvider } from '@web3-react/core';
+import { ethers } from 'ethers';
+import { Web3Provider as Web3ContextProvider } from './contexts/Web3Context';
+import AppRoutes from './routes';
 
 // Pages
 import Home from './pages/Home';
@@ -14,6 +17,8 @@ import AdminLogin from './pages/AdminLogin';
 import AdminDashboard from './pages/AdminDashboard';
 import ElectionList from './pages/ElectionList';
 import ElectionDetail from './pages/ElectionDetail';
+import ElectionResultsReport from './pages/ElectionResultsReport';
+import NotFound from './components/NotFound';
 
 // Components
 import Header from './components/Header';
@@ -23,26 +28,42 @@ import Footer from './components/Footer';
 const theme = createTheme({
   palette: {
     primary: {
-      main: '#20B2AA', // lightseagreen
-      light: '#5ed4cd',
-      dark: '#00827b',
-      contrastText: '#ffffff',
+      main: '#169385',
+      light: '#80CBC4',
+      dark: '#0f6b5f',
+      contrastText: '#FFFFFF',
     },
     secondary: {
-      main: '#607d8b', // xám xanh
-      light: '#8eacbb',
-      dark: '#34515e',
-      contrastText: '#ffffff',
+      main: '#80CBC4',
+      light: '#a7e8e0',
+      dark: '#4db6ac',
+      contrastText: '#FFFFFF',
     },
     background: {
-      default: '#f5f5f5', // xám nhạt
-      paper: '#ffffff',  // trắng
+      default: '#fff',
+      paper: '#fff',
     },
     text: {
-      primary: '#333333',
-      secondary: '#757575',
+      primary: '#141619',
+      secondary: '#2C2E3A',
     },
-    divider: '#e0e0e0',
+    divider: '#169385',
+    error: {
+      main: '#FF3B3B',
+      contrastText: '#fff',
+    },
+    success: {
+      main: '#00C896',
+      contrastText: '#fff',
+    },
+    warning: {
+      main: '#FFB300',
+      contrastText: '#fff',
+    },
+    info: {
+      main: '#169385',
+      contrastText: '#fff',
+    },
   },
   typography: {
     fontFamily: [
@@ -61,7 +82,7 @@ const theme = createTheme({
         },
         containedPrimary: {
           '&:hover': {
-            backgroundColor: '#00827b',
+            backgroundColor: '#0f6b5f',
           },
         },
       },
@@ -70,14 +91,49 @@ const theme = createTheme({
       styleOverrides: {
         root: {
           borderRadius: 8,
-          boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+          boxShadow: '0 2px 8px rgba(22,147,133,0.08)',
+          background: '#fff',
+          color: '#141619',
         },
       },
     },
     MuiAppBar: {
       styleOverrides: {
         root: {
-          boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+          boxShadow: '0 2px 4px rgba(22,147,133,0.1)',
+          background: '#141619',
+        },
+      },
+    },
+    MuiPaper: {
+      styleOverrides: {
+        root: {
+          background: '#fff',
+          color: '#141619',
+        },
+      },
+    },
+    MuiAlert: {
+      styleOverrides: {
+        root: {
+          fontWeight: 500,
+          fontSize: '1rem',
+        },
+        standardError: {
+          background: '#FF3B3B',
+          color: '#fff',
+        },
+        standardSuccess: {
+          background: '#00C896',
+          color: '#fff',
+        },
+        standardWarning: {
+          background: '#FFB300',
+          color: '#fff',
+        },
+        standardInfo: {
+          background: '#2196F3',
+          color: '#fff',
         },
       },
     },
@@ -98,6 +154,69 @@ const VoterRoute = ({ children }) => {
   return isVoter ? children : <Navigate to="/login" />;
 };
 
+function getLibrary(provider) {
+  const library = new ethers.providers.Web3Provider(provider);
+  library.pollingInterval = 12000;
+  return library;
+}
+
+function AppWithFooterControl() {
+  const location = useLocation();
+  const isAdminDashboard = location.pathname.startsWith('/admin');
+  return (
+    <>
+      <Header />
+      <Box sx={{ 
+        display: 'flex', 
+        flexDirection: 'column', 
+        minHeight: '100vh',
+        bgcolor: '#f5f5f5'
+      }}>
+        <Box 
+          component="main" 
+          sx={{ 
+            flexGrow: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            pt: 0,
+            pb: 0,
+            mt: 0,
+          }}
+        >
+          <Routes>
+                    <Route path="/" element={<Home />} />
+                    <Route path="/login" element={<Login />} />
+                    <Route path="/register" element={<Register />} />
+                    <Route path="/admin" element={<AdminLogin />} />
+                    <Route path="/admin/dashboard" element={
+                      <AdminRoute>
+                        <AdminDashboard />
+                      </AdminRoute>
+                    } />
+                    <Route path="/elections" element={
+                      <VoterRoute>
+                        <ElectionList />
+                      </VoterRoute>
+                    } />
+                    <Route path="/elections/:id" element={
+                      <VoterRoute>
+                        <ElectionDetail />
+                      </VoterRoute>
+                    } />
+                    <Route path="/elections/:id/results" element={
+                      <AdminRoute>
+                        <ElectionResultsReport />
+                      </AdminRoute>
+                    } />
+                    <Route path="*" element={<NotFound />} />
+                  </Routes>
+                </Box>
+                {!isAdminDashboard && <Footer />}
+              </Box>
+            </>
+          );
+        }
+
 function App() {
   // Check for existing login on app start
   useEffect(() => {
@@ -109,49 +228,18 @@ function App() {
   }, []);
 
   return (
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
-      <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={vi}>
-        <Router>
-          <Box 
-            sx={{ 
-              display: 'flex', 
-              flexDirection: 'column', 
-              minHeight: '100vh' 
-            }}
-          >
-            <Header />
-            <Box 
-              component="main" 
-              sx={{ 
-                flexGrow: 1, 
-                pt: 2,
-                pb: 4
-              }}
-            >
-              <Routes>
-                <Route path="/" element={<Home />} />
-                <Route path="/login" element={<Login />} />
-                <Route path="/register" element={<Register />} />
-                {/* Tạm thời chuyển hướng đến trang bầu cử thay vì dashboard */}
-                <Route path="/dashboard" element={<Navigate to="/elections" />} />
-                <Route path="/admin" element={<AdminLogin />} />
-                <Route path="/admin/dashboard" element={
-                  <AdminRoute>
-                    <AdminDashboard />
-                  </AdminRoute>
-                } />
-                <Route path="/elections" element={<ElectionList />} />
-                <Route path="/elections/:id" element={<ElectionDetail />} />
-                {/* Sử dụng redirect thay vì component NotFound */}
-                <Route path="*" element={<Navigate to="/" />} />
-              </Routes>
-            </Box>
-            <Footer />
-          </Box>
-        </Router>
-      </LocalizationProvider>
-    </ThemeProvider>
+    <Web3ReactProvider getLibrary={getLibrary}>
+      <Web3ContextProvider>
+        <ThemeProvider theme={theme}>
+          <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={vi}>
+            <CssBaseline />
+            <Router>
+              <AppWithFooterControl />
+            </Router>
+          </LocalizationProvider>
+        </ThemeProvider>
+      </Web3ContextProvider>
+    </Web3ReactProvider>
   );
 }
 

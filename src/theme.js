@@ -2,24 +2,22 @@ import { createTheme } from '@mui/material/styles';
 
 const theme = createTheme({
   palette: {
+    mode: 'dark',
     primary: {
-      main: '#00b3ad',
-      light: '#4ee6e0',
-      dark: '#00827d',
-      contrastText: '#000000',
+      main: '#169385',
+      contrastText: '#fff',
     },
     secondary: {
-      main: '#FFFFFF',
-      light: '#FFFFFF',
-      dark: '#F5F5F5',
+      main: '#80CBC4',
+      contrastText: '#fff',
     },
     background: {
-      default: '#FFFFFF',
-      paper: '#FFFFFF',
+      default: '#18191A',
+      paper: '#23272F',
     },
     text: {
-      primary: '#333333',
-      secondary: '#666666',
+      primary: '#fff',
+      secondary: '#ccc',
     },
   },
   typography: {
@@ -50,13 +48,14 @@ const theme = createTheme({
           textTransform: 'none',
           borderRadius: 8,
           '&:hover': {
-            backgroundColor: '#00827d',
+            backgroundColor: '#80CBC4',
           },
+          color: '#fff',
         },
         contained: {
-          boxShadow: '0 2px 4px rgba(0,179,173,0.2)',
+          boxShadow: '0 2px 4px rgba(22,147,133,0.2)',
           '&:hover': {
-            boxShadow: '0 4px 8px rgba(0,179,173,0.3)',
+                          boxShadow: '0 4px 8px rgba(22,147,133,0.3)',
           },
         },
       },
@@ -77,12 +76,12 @@ const theme = createTheme({
         root: {
           '& .MuiOutlinedInput-root': {
             borderRadius: 8,
-            '&:hover fieldset': {
-              borderColor: '#00b3ad',
-            },
-            '&.Mui-focused fieldset': {
-              borderColor: '#00b3ad',
-            },
+                      '&:hover fieldset': {
+            borderColor: '#169385',
+          },
+          '&.Mui-focused fieldset': {
+            borderColor: '#169385',
+          },
           },
         },
       },
@@ -92,7 +91,7 @@ const theme = createTheme({
         root: {
           backgroundColor: '#FFFFFF',
           color: '#333333',
-          boxShadow: '0 2px 4px rgba(0,179,173,0.1)',
+          boxShadow: '0 2px 4px rgba(22,147,133,0.1)',
         },
       },
     },
@@ -107,7 +106,7 @@ const theme = createTheme({
       styleOverrides: {
         root: {
           '&:hover': {
-            backgroundColor: 'rgba(0,179,173,0.1)',
+            backgroundColor: 'rgba(22,147,133,0.1)',
           },
         },
       },

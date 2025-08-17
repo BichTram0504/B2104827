@@ -7,11 +7,27 @@ import {
   Grid,
   Card,
   CardContent,
+  CardMedia,
   useTheme,
   Divider,
   Link,
   Paper,
+  Alert,
+  Chip,
+  Stack,
+  useMediaQuery,
+  IconButton,
+  Avatar,
+  styled,
+  Snackbar,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Fade,
+  Grow
 } from '@mui/material';
+import Chatbot from '../components/Chatbot';
 import { useNavigate } from 'react-router-dom';
 import HowToVoteIcon from '@mui/icons-material/HowToVote';
 import SecurityIcon from '@mui/icons-material/Security';
@@ -19,599 +35,788 @@ import SpeedIcon from '@mui/icons-material/Speed';
 import TransparencyIcon from '@mui/icons-material/Visibility';
 import ArticleIcon from '@mui/icons-material/Article';
 import InfoIcon from '@mui/icons-material/Info';
+import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
+import WarningIcon from '@mui/icons-material/Warning';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import CloseIcon from '@mui/icons-material/Close';
+import { useWeb3React } from '@web3-react/core';
+import { injected } from '../components/Web3Provider';
+import { motion } from 'framer-motion';
+import LoginIcon from '@mui/icons-material/Login';
+import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
+import ArrowForwardIosIcon from '@mui/icons-material/ArrowForwardIos';
+import ArrowBackIosNewIcon from '@mui/icons-material/ArrowBackIosNew';
+import LogoIcon from '../assets/BG.svg';
+import axios from 'axios';
+
+// Clean white background
+const CleanBg = styled(Box)(({ theme }) => ({
+  minHeight: '100vh',
+  background: '#ffffff',
+  position: 'relative',
+  color: '#169385',
+  fontFamily: 'Roboto, Arial, sans-serif',
+  overflow: 'hidden',
+}));
+
+// Main content container
+const MainContainer = styled(Container)(({ theme }) => ({
+  position: 'relative',
+  zIndex: 2,
+  padding: theme.spacing(4),
+  marginTop: theme.spacing(4),
+  marginBottom: theme.spacing(4),
+}));
+
+// Modern button styling
+const ModernButton = styled(Button)(({ theme }) => ({
+  background: 'linear-gradient(135deg, #169385 0%, #0f6b5f 100%)',
+  borderRadius: 16,
+  padding: '12px 32px',
+  marginBottom: 60,
+  fontSize: '1.1rem',
+  fontWeight: 600,
+  textTransform: 'none',
+  color: '#fff',
+  boxShadow: '0 4px 16px rgba(22, 147, 133, 0.3)',
+  transition: 'all 0.3s ease',
+  '&:hover': {
+    background: 'linear-gradient(135deg, #0f6b5f 0%, #169385 100%)',
+    boxShadow: '0 8px 24px rgba(22, 147, 133, 0.4)',
+    transform: 'translateY(-2px)',
+  },
+}));
+
+// Secondary button styling
+const SecondaryButton = styled(Button)(({ theme }) => ({
+  background: 'transparent',
+  borderRadius: 16,
+  padding: '12px 32px',
+  marginBottom: 60,
+  fontSize: '1.1rem',
+  fontWeight: 600,
+  textTransform: 'none',
+  color: '#169385',
+  border: '2px solid #169385',
+  transition: 'all 0.3s ease',
+  '&:hover': {
+    background: '#169385',
+    color: '#fff',
+    transform: 'translateY(-2px)',
+  },
+}));
+
+// Feature card with clean design
+const FeatureCard = styled(Card)(({ theme }) => ({
+  background: '#fff',
+  borderRadius: 20,
+  border: '2px solid #e0f2f1',
+  boxShadow: '0 8px 32px rgba(22, 147, 133, 0.1)',
+  transition: 'all 0.3s ease',
+  '&:hover': {
+    transform: 'translateY(-8px)',
+    boxShadow: '0 16px 48px rgba(22, 147, 133, 0.2)',
+    border: '2px solid #169385',
+  },
+}));
+
+// Election card with clean styling
+const ElectionCard = styled(Box)(({ theme }) => ({
+  background: '#fff',
+  borderRadius: 16,
+  border: '2px solid #e0f2f1',
+  boxShadow: '0 4px 16px rgba(22, 147, 133, 0.1)',
+  padding: theme.spacing(2),
+  cursor: 'pointer',
+  transition: 'all 0.3s ease',
+  '&:hover': {
+    transform: 'scale(1.05)',
+    boxShadow: '0 8px 24px rgba(22, 147, 133, 0.2)',
+    border: '2px solid #169385',
+  },
+}));
+
+// Step circle with clean design
+const StepCircle = styled(Box)(({ theme }) => ({
+  width: 60,
+  height: 60,
+  borderRadius: '50%',
+  background: 'linear-gradient(135deg, #169385 0%, #0f6b5f 100%)',
+  color: '#fff',
+  fontWeight: 700,
+  fontSize: 24,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  boxShadow: '0 4px 16px rgba(22, 147, 133, 0.3)',
+}));
+
+function ElectionSlider({ elections, onClick }) {
+  const [index, setIndex] = React.useState(0);
+  const visibleCount = 4;
+  
+  //Tắt auto-slide để tránh timeout
+  React.useEffect(() => {
+    const timer = setInterval(() => {
+      setIndex((prev) => (prev + visibleCount) % (elections.length > 0 ? elections.length : 1));
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [elections.length]);
+  
+  if (!elections.length) return null;
+  
+  const getVisible = () => {
+    if (elections.length <= visibleCount) return elections;
+    let arr = [];
+    for (let i = 0; i < visibleCount; i++) {
+      arr.push(elections[(index + i) % elections.length]);
+    }
+    return arr;
+  };
+  
+  const visibleElections = getVisible();
+  
+  return (
+    <Box sx={{ 
+      width: '100%', 
+      marginBottom: 60,
+      mb: 5, 
+      display: 'flex', 
+      justifyContent: 'center', 
+      alignItems: 'center', 
+      position: 'relative', 
+      gap: 3 
+    }}>
+      <IconButton 
+        onClick={() => setIndex((index - visibleCount + elections.length) % elections.length)} 
+        sx={{ 
+          position: 'absolute', 
+          left: 0, 
+          zIndex: 2, 
+          color: '#169385', 
+          bgcolor: '#fff', 
+          border: '2px solid #169385',
+          boxShadow: '0 4px 16px rgba(22, 147, 133, 0.2)',
+          '&:hover': { 
+            bgcolor: '#169385',
+            color: '#fff',
+            transform: 'scale(1.1)',
+          } 
+        }}
+      >
+        <ArrowBackIosNewIcon />
+      </IconButton>
+      
+      <Box sx={{ display: 'flex', gap: 3, width: '100%', justifyContent: 'center' }}>
+        {visibleElections.map((election, idx) => (
+          <ElectionCard key={election.id || idx} onClick={() => onClick(election)}>
+            <Box sx={{ position: 'relative', width: 254, height: 180 }}>
+              <Box 
+                component="img" 
+                src={election.logoUrl} 
+                alt={election.title} 
+                sx={{ 
+                  width: '100%', 
+                  height: '100%', 
+                  objectFit: 'cover', 
+                  borderRadius: 12,
+                  boxShadow: '0 4px 16px rgba(0,0,0,0.1)'
+                }} 
+              />
+              <Box sx={{ 
+                position: 'absolute', 
+                left: 0, 
+                right: 0, 
+                bottom: 0, 
+                background: 'linear-gradient(transparent, rgba(0,0,0,0.8))',
+                color: '#fff', 
+                borderBottomLeftRadius: 12, 
+                borderBottomRightRadius: 12, 
+                px: 2, 
+                py: 1.5 
+              }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700, fontSize: 16, lineHeight: 1.2 }}>
+                  {election.title}
+                </Typography>
+                <Typography variant="caption" sx={{ color: '#e0e0e0', fontSize: 14 }}>
+                  {new Date(election.startTime).toLocaleDateString()} - {new Date(election.endTime).toLocaleDateString()}
+                </Typography>
+              </Box>
+            </Box>
+          </ElectionCard>
+        ))}
+      </Box>
+      
+      <IconButton 
+        onClick={() => setIndex((index + visibleCount) % elections.length)} 
+        sx={{ 
+          position: 'absolute', 
+          right: 0, 
+          zIndex: 2, 
+          color: '#169385', 
+          bgcolor: '#fff', 
+          border: '2px solid #169385',
+          boxShadow: '0 4px 16px rgba(22, 147, 133, 0.2)',
+          '&:hover': { 
+            bgcolor: '#169385',
+            color: '#fff',
+            transform: 'scale(1.1)',
+          } 
+        }}
+      >
+        <ArrowForwardIosIcon />
+      </IconButton>
+    </Box>
+  );
+}
 
 const Home = () => {
   const navigate = useNavigate();
   const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const { active, account, activate, deactivate } = useWeb3React();
+
+  const [ongoingElections, setOngoingElections] = React.useState([]);
+  const [showWalletNotification, setShowWalletNotification] = React.useState(false);
+  const [walletNotificationType, setWalletNotificationType] = React.useState('info'); // 'info', 'success', 'warning'
+
+  React.useEffect(() => {
+    axios.get('http://localhost:5000/api/elections')
+      .then(res => {
+        const now = new Date();
+        const activeElections = (res.data || []).filter(e => {
+          const start = new Date(e.startTime);
+          const end = new Date(e.endTime);
+          return now >= start && now <= end;
+        });
+        setOngoingElections(activeElections.map(e => ({
+          id: e._id || e.id,
+          title: e.title,
+          logoUrl: e.logoUrl || 'https://i.imgur.com/D2lDXPB.jpg',
+          startTime: e.startTime,
+          endTime: e.endTime
+        })));
+      })
+      .catch(() => setOngoingElections([]));
+  }, []);
+
+  // Hiển thị thông báo ví khi component mount nếu chưa kết nối
+  React.useEffect(() => {
+    if (!active) {
+      const timer = setTimeout(() => {
+        setShowWalletNotification(true);
+        setWalletNotificationType('info');
+      }, 2000); // Hiển thị sau 2 giây
+      return () => clearTimeout(timer);
+    }
+  }, [active]);
+
+  const handleConnectWallet = async () => {
+    try {
+      await activate(injected);
+      setWalletNotificationType('success');
+      setShowWalletNotification(true);
+      // Ẩn thông báo thành công sau 3 giây
+      setTimeout(() => {
+        setShowWalletNotification(false);
+      }, 3000);
+    } catch (error) {
+      console.error('Error connecting wallet:', error);
+      setWalletNotificationType('warning');
+      setShowWalletNotification(true);
+    }
+  };
+
+  const handleDisconnectWallet = () => {
+    try {
+      deactivate();
+      setWalletNotificationType('info');
+      setShowWalletNotification(true);
+    } catch (error) {
+      console.error('Error disconnecting wallet:', error);
+    }
+  };
+
+  const handleCloseNotification = () => {
+    setShowWalletNotification(false);
+  };
+
+  const formatAddress = (address) => {
+    if (!address) return '';
+    return `${address.slice(0, 6)}...${address.slice(-4)}`;
+  };
+
+  const getNotificationContent = () => {
+    switch (walletNotificationType) {
+      case 'success':
+        return {
+          title: 'Kết nối ví thành công!',
+          message: 'Bạn đã kết nối ví MetaMask thành công. Bây giờ bạn có thể tham gia bầu cử.',
+          icon: <CheckCircleIcon sx={{ color: '#4caf50' }} />,
+          color: '#4caf50',
+          bgColor: '#e8f5e8'
+        };
+      case 'warning':
+        return {
+          title: 'Lỗi kết nối ví',
+          message: 'Không thể kết nối ví MetaMask. Vui lòng kiểm tra và thử lại.',
+          icon: <WarningIcon sx={{ color: '#ff9800' }} />,
+          color: '#ff9800',
+          bgColor: '#fff3e0'
+        };
+      default:
+        return {
+          title: 'Kết nối ví MetaMask',
+          message: 'Để tham gia bầu cử an toàn, vui lòng kết nối ví MetaMask của bạn.',
+          icon: <AccountBalanceWalletIcon sx={{ color: '#0f6b5f' }} />,
+          color: '#0f6b5f',
+          bgColor: '#e8f5e8'
+        };
+    }
+  };
 
   const features = [
     {
-      icon: <SecurityIcon sx={{ fontSize: 40 }} />,
+      icon: <SecurityIcon sx={{ fontSize: 48, color: '#169385' }} />,
       title: 'Bảo Mật Tuyệt Đối',
       description: 'Sử dụng công nghệ blockchain để đảm bảo tính bảo mật và không thể can thiệp vào kết quả bầu cử.',
     },
     {
-      icon: <SpeedIcon sx={{ fontSize: 40 }} />,
+      icon: <SpeedIcon sx={{ fontSize: 48, color: '#169385' }} />,
       title: 'Nhanh Chóng & Tiện Lợi',
       description: 'Bỏ phiếu trực tuyến mọi lúc mọi nơi, không cần phải đến địa điểm bỏ phiếu.',
     },
     {
-      icon: <TransparencyIcon sx={{ fontSize: 40 }} />,
+      icon: <TransparencyIcon sx={{ fontSize: 48, color: '#169385' }} />,
       title: 'Minh Bạch & Công Khai',
       description: 'Mọi hoạt động bầu cử đều được ghi lại trên blockchain, có thể kiểm tra và xác minh.',
     },
   ];
 
-  const recentArticles = [
-    {
-      title: "Giải pháp bỏ phiếu điện tử sử dụng công nghệ Blockchain",
-      url: "https://tapchitaichinh.vn/su-kien-noi-bat/giai-phap-bo-phieu-dien-tu-su-dung-cong-nghe-blockchain-340018.html",
-      date: "15/03/2023",
-      source: "Tạp chí Tài chính",
-      image: "https://tailieu.antoanthongtin.gov.vn/Files/files/site-2/images/20210831/4056d34eb10c5852011d.jpg"
-    },
-    {
-      title: "Nghiên cứu ứng dụng công nghệ blockchain trong bầu cử điện tử",
-      url: "https://namdinh.gov.vn/portal/Pages/2021-10-5/Ung-dung-Blockchain-trong-Chinh-phu-dien-tuja6ggf.aspx",
-      date: "20/04/2023",
-      source: "Tạp chí BCVT",
-      image: "https://nghiencuuquocte.org/wp-content/uploads/2019/04/blockchain.jpg"
-    },
-    {
-      title: "Blockchain: Công nghệ giúp bầu cử minh bạch và an toàn",
-      url: "https://nghiencuuquocte.org/2019/04/09/minh-bach-hoa-bau-cu-cong-nghe-blockchain/",
-      date: "28/05/2023",
-      source: "VOV.VN",
-      image: "https://cdn2.tuoitre.vn/tto/i/s626/2017/10/12/659679b5.jpg"
-    },
-  ];
+  const notificationContent = getNotificationContent();
 
   return (
-    <Box>
-      {/* Hero Section */}
-      <Box
-        sx={{
-          bgcolor: 'primary.main',
-          color: 'white',
-          py: 8,
-          mb: 6,
+    <CleanBg>
+      {/* Chatbot Component */}
+      <Chatbot />
+      
+      {/* Wallet Connection Notification */}
+      <Snackbar
+        open={showWalletNotification}
+        autoHideDuration={walletNotificationType === 'success' ? 3000 : 6000}
+        onClose={handleCloseNotification}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+        sx={{ 
+          top: { xs: 80, md: 100 },
+          '& .MuiSnackbar-root': {
+            width: '100%',
+            maxWidth: 'none'
+          }
         }}
       >
-        <Container maxWidth="lg">
-          <Grid container spacing={4} alignItems="center">
-            <Grid item xs={12} md={6}>
-              <Typography variant="h2" component="h1" gutterBottom>
-                Hệ Thống Bầu Cử Trực Tuyến
-              </Typography>
-              <Typography variant="h5" sx={{ mb: 4 }}>
-                Sử dụng công nghệ blockchain để đảm bảo tính minh bạch và bảo mật
-              </Typography>
-              <Box sx={{ display: 'flex', gap: 2 }}>
-                <Button
-                  variant="contained"
-                  color="secondary"
-                  // size="large"
-                  // margin-left = "70%"
-                  onClick={() => navigate('/login')}
-                >
-                  Đăng Nhập
-                </Button>
-                <Button
-                  variant="outlined"
-                  color="inherit"
-                  size="large"
-                  onClick={() => navigate('/register')}
-                >
-                  Đăng Ký
-                </Button>
-              </Box>
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <HowToVoteIcon sx={{ fontSize: 250, opacity: 0.8, marginLeft: "30%"}} />
-            </Grid>
-          </Grid>
-        </Container>
-      </Box>
-
-      {/* Blockchain Info Section */}
-      <Container maxWidth="lg" sx={{ mb: 8 }}>
-        <Box sx={{ textAlign: 'center', mb: 4 }}>
-          <InfoIcon sx={{ fontSize: 48, color: 'primary.main', mb: 1 }} />
-          <Typography variant="h3" component="h2" gutterBottom>
-            Blockchain Là Gì?
-          </Typography>
-        </Box>
-        
-        <Paper elevation={3} sx={{ p: 4, mb: 5 }}>
-          <Grid container spacing={4}>
-            <Grid item xs={12} md={6}>
-              <Typography variant="body1" paragraph>
-                <strong>Blockchain</strong> là một công nghệ lưu trữ và truyền tải dữ liệu dưới dạng các khối liên kết với nhau, 
-                sử dụng mã hóa để đảm bảo an toàn. Mỗi khối dữ liệu được liên kết với khối trước đó tạo thành một chuỗi khối dữ liệu.
-              </Typography>
-              
-              <Typography variant="body1" paragraph>
-                <strong>Đặc điểm nổi bật của Blockchain:</strong>
-              </Typography>
-              
-              <Grid container spacing={3} sx={{ mb: 3 }}>
-                <Grid item xs={12} md={4}>
-                  <Card sx={{ height: '100%', bgcolor: 'primary.light', color: 'white' }}>
-                    <CardContent>
-                      <Typography variant="h6" gutterBottom>Phi tập trung</Typography>
-                      <Typography variant="body2">
-                        Dữ liệu được lưu trữ trên nhiều máy tính khác nhau, không tập trung vào một máy chủ.
-                      </Typography>
-                    </CardContent>
-                  </Card>
-                </Grid>
-                <Grid item xs={12} md={4}>
-                  <Card sx={{ height: '100%', bgcolor: 'secondary.main', color: 'white' }}>
-                    <CardContent>
-                      <Typography variant="h6" gutterBottom>Minh bạch</Typography>
-                      <Typography variant="body2">
-                        Mọi giao dịch đều được ghi lại và có thể kiểm tra, xác thực bởi tất cả người dùng.
-                      </Typography>
-                    </CardContent>
-                  </Card>
-                </Grid>
-                <Grid item xs={12} md={4}>
-                  <Card sx={{ height: '100%', bgcolor: 'primary.dark', color: 'white' }}>
-                    <CardContent>
-                      <Typography variant="h6" gutterBottom>Không thể sửa đổi</Typography>
-                      <Typography variant="body2">
-                        Dữ liệu đã được xác nhận không thể bị thay đổi hoặc xóa bỏ.
-                      </Typography>
-                    </CardContent>
-                  </Card>
-                </Grid>
-              </Grid>
-              
-              <Typography variant="body1" paragraph>
-                <strong>Trong hệ thống bầu cử</strong>, blockchain đảm bảo rằng mỗi phiếu bầu được ghi nhận một cách an toàn, 
-                minh bạch và không thể bị sửa đổi. Công nghệ này giải quyết nhiều vấn đề của hệ thống bầu cử truyền thống như 
-                gian lận, thiếu minh bạch và chi phí cao.
-              </Typography>
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <Box sx={{ textAlign: 'center', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                <img 
-                  src="https://funix.edu.vn/wp-content/uploads/2023/03/hoc-cong-nghe-thong-tin-co-kho-khong-va-dieu-can-biet.jpg" 
-                  alt="Blockchain Technology Diagram" 
-                  style={{ maxWidth: '100%', height: 'auto', borderRadius: '8px', marginBottom: '1rem' }}
-                />
-                <img 
-                  src="https://bytesoft.vn/uploads/12/blockchain-va-banking-bytesoft.gif" 
-                  alt="Blockchain Voting System" 
-                  style={{ maxWidth: '100%', height: 'auto', borderRadius: '8px' }}
-                />
-                
-              </Box>
-            </Grid>
-          </Grid>
-        </Paper>
-      </Container>
-
-      {/* Features Section */}
-      <Container maxWidth="lg" sx={{ mb: 8 }}>
-        <Typography variant="h3" component="h2" align="center" gutterBottom>
-          Ưu Điểm Của Hệ Thống
-        </Typography>
-        <Grid container spacing={4} sx={{ mt: 2 }}>
-          {features.map((feature, index) => (
-            <Grid item xs={12} md={4} key={index}>
-              <Card sx={{ height: '100%' }}>
-                <CardContent sx={{ textAlign: 'center' }}>
-                  <Box sx={{ color: 'primary.main', mb: 2 }}>
-                    {feature.icon}
-                  </Box>
-                  <Typography variant="h5" component="h3" gutterBottom>
-                    {feature.title}
-                  </Typography>
-                  <Typography variant="body1" color="text.secondary">
-                    {feature.description}
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-          ))}
-        </Grid>
-      </Container>
-
-      {/* Process Section */}
-      <Box sx={{ bgcolor: 'background.default', py: 8 }}>
-        <Container maxWidth="lg">
-          <Typography variant="h3" component="h2" align="center" gutterBottom>
-            Quy Trình Bầu Cử
-          </Typography>
-          <Typography variant="subtitle1" align="center" color="text.secondary" sx={{ mb: 6 }}>
-            Các bước tham gia bầu cử điện tử sử dụng công nghệ blockchain
-          </Typography>
-
-          {/* Flowchart/Timeline style */}
-          <Box sx={{ position: 'relative', my: 4, px: { xs: 2, md: 6 } }}>
-            {/* Vertical line */}
-            <Box 
-              sx={{
+        <Grow in={showWalletNotification} timeout={500}>
+          <Paper
+            elevation={8}
+            sx={{
+              p: 3,
+              borderRadius: 3,
+              border: `2px solid ${notificationContent.color}`,
+              backgroundColor: notificationContent.bgColor,
+              maxWidth: 500,
+              width: '100%',
+              position: 'relative',
+              overflow: 'hidden',
+              '&::before': {
+                content: '""',
                 position: 'absolute',
-                left: { xs: '30px', md: '50%' },
-                transform: { xs: 'none', md: 'translateX(-30%)' },
                 top: 0,
-                bottom: 0,
-                width: '4px',
-                bgcolor: 'primary.main',
-                zIndex: 0
+                left: 0,
+                right: 0,
+                height: 4,
+                background: `linear-gradient(90deg, ${notificationContent.color}, ${notificationContent.color}dd)`,
+              },
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
+              <Box sx={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center',
+                width: 48,
+                height: 48,
+                borderRadius: '50%',
+                backgroundColor: `${notificationContent.color}15`,
+                flexShrink: 0
+              }}>
+                {notificationContent.icon}
+              </Box>
+              
+              <Box sx={{ flex: 1 }}>
+                <Typography 
+                  variant="h6" 
+                  sx={{ 
+                    fontWeight: 700, 
+                    color: notificationContent.color,
+                    mb: 1,
+                    fontSize: '1.1rem'
+                  }}
+                >
+                  {notificationContent.title}
+                </Typography>
+                <Typography 
+                  variant="body2" 
+                  sx={{ 
+                    color: '#546e7a',
+                    lineHeight: 1.5,
+                    mb: 2
+                  }}
+                >
+                  {notificationContent.message}
+                </Typography>
+                
+                {walletNotificationType === 'info' && (
+                  <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                    <Button
+                      variant="contained"
+                      size="small"
+                      onClick={handleConnectWallet}
+                      startIcon={<AccountBalanceWalletIcon />}
+                      sx={{
+                        backgroundColor: notificationContent.color,
+                        color: '#fff',
+                        borderRadius: 2,
+                        textTransform: 'none',
+                        fontWeight: 600,
+                        '&:hover': {
+                          backgroundColor: `${notificationContent.color}dd`,
+                        }
+                      }}
+                    >
+                      Kết nối ví
+                    </Button>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      onClick={handleCloseNotification}
+                      sx={{
+                        borderColor: notificationContent.color,
+                        color: notificationContent.color,
+                        borderRadius: 2,
+                        textTransform: 'none',
+                        fontWeight: 600,
+                        '&:hover': {
+                          backgroundColor: `${notificationContent.color}15`,
+                        }
+                      }}
+                    >
+                      Để sau
+                    </Button>
+                  </Box>
+                )}
+              </Box>
+              
+              <IconButton
+                onClick={handleCloseNotification}
+                sx={{
+                  color: notificationContent.color,
+                  '&:hover': {
+                    backgroundColor: `${notificationContent.color}15`,
+                  }
+                }}
+              >
+                <CloseIcon />
+              </IconButton>
+            </Box>
+          </Paper>
+        </Grow>
+      </Snackbar>
+      
+      {/* Main Content */}
+      <MainContainer maxWidth="lg">
+        {/* Header Section */}
+        <Box sx={{ 
+          display: 'flex', 
+          minHeight: 100,
+          flexDirection: { xs: 'column', md: 'row' }, 
+          alignItems: 'center', 
+          justifyContent: 'space-between', 
+          gap: { xs: 3, md: 0 },
+          mb: 6
+        }}>
+          {/* Left: Title + Buttons */}
+          <Box sx={{ 
+            flex: 1, 
+            display: 'flex', 
+            flexDirection: 'column', 
+            alignItems: { xs: 'center', md: 'flex-start' }, 
+            justifyContent: 'center' 
+          }}>
+            <Typography 
+              variant="h2" 
+              sx={{ 
+                fontWeight: 700, 
+                mb: 3, 
+                color: '#0f6b5f', 
+                letterSpacing: 2, 
+                textAlign: { xs: 'center', md: 'left' },
+                fontSize: { xs: '2.5rem', md: '3.5rem' },
               }}
-            />
-
-            {/* Step 1 */}
-            <Box sx={{ 
-              display: 'flex', 
-              flexDirection: { xs: 'row', md: 'row' }, 
-              alignItems: 'center',
-              mb: 5,
-              position: 'relative'
-            }}>
-              <Box 
-                sx={{
-                  width: 40,
-                  height: 40,
-                  bgcolor: 'primary.main',
-                  color: 'white',
-                  borderRadius: '50%',
-                  display: 'flex',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  fontSize: 24,
-                  fontWeight: 'bold',
-                  mr: { xs: 2, md: 0 },
-                  zIndex: 1,
-                  boxShadow: 3,
-                  flexShrink: 0
-                }}
-              >
-                1
-              </Box>
-              <Card sx={{ 
-                ml: { xs: 0, md: 3 }, 
-                width: { xs: 'calc(100% - 80px)', md: '45%' },
-                boxShadow: 3,
-                position: { md: 'absolute' },
-                left: { md: 0 },
-                top: { md: '-25px' }
-              }}>
-                <CardContent>
-                  <Typography variant="h5" component="h3" gutterBottom color="primary.main">
-                    Đăng Ký Tài Khoản
-                  </Typography>
-                  <Typography variant="body1">
-                    Đăng ký tài khoản với thông tin cá nhân, CCCD/CMND và tạo mật khẩu đăng nhập an toàn để tham gia bầu cử.
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Box>
-
-            {/* Step 2 */}
-            <Box sx={{ 
-              display: 'flex', 
-              flexDirection: { xs: 'row', md: 'row-reverse' }, 
-              alignItems: 'center',
-              mb: 5,
-              position: 'relative'
-            }}>
-              <Box 
-                sx={{
-                  width: 40,
-                  height: 40,
-                  bgcolor: 'primary.main',
-                  color: 'white',
-                  borderRadius: '50%',
-                  display: 'flex',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  fontSize: 24,
-                  fontWeight: 'bold',
-                  ml: { xs: 0, md: 0 },
-                  mr: { xs: 2, md: 0 },
-                  zIndex: 1,
-                  boxShadow: 3,
-                  flexShrink: 0,
-                  order: { xs: 0, md: 2 }
-                }}
-              >
-                2
-              </Box>
-              <Card sx={{ 
-                ml: { xs: 0, md: 0 }, 
-                mr: { xs: 0, md: 3 },
-                width: { xs: 'calc(100% - 80px)', md: '45%' },
-                boxShadow: 3,
-                position: { md: 'absolute' },
-                right: { md: 0 },
-                top: { md: '-25px' },
-                order: { xs: 1, md: 1 }
-              }}>
-                <CardContent>
-                  <Typography variant="h5" component="h3" gutterBottom color="primary.main">
-                    Xác Thực Danh Tính
-                  </Typography>
-                  <Typography variant="body1">
-                    Đăng nhập vào hệ thống với tài khoản đã đăng ký. Hệ thống sẽ xác thực danh tính của bạn thông qua thông tin cá nhân.
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Box>
-
-            {/* Step 3 */}
-            <Box sx={{ 
-              display: 'flex', 
-              flexDirection: { xs: 'row', md: 'row' }, 
-              alignItems: 'center',
-              mb: 5,
-              position: 'relative'
-            }}>
-              <Box 
-                sx={{
-                  width: 40,
-                  height: 40,
-                  bgcolor: 'primary.main',
-                  color: 'white',
-                  borderRadius: '50%',
-                  display: 'flex',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  fontSize: 24,
-                  fontWeight: 'bold',
-                  mr: { xs: 2, md: 0 },
-                  zIndex: 1,
-                  boxShadow: 3,
-                  flexShrink: 0
-                }}
-              >
-                3
-              </Box>
-              <Card sx={{ 
-                ml: { xs: 0, md: 3 }, 
-                width: { xs: 'calc(100% - 80px)', md: '45%' },
-                boxShadow: 3,
-                position: { md: 'absolute' },
-                left: { md: 0 },
-                top: { md: '-25px' }
-              }}>
-                <CardContent>
-                  <Typography variant="h5" component="h3" gutterBottom color="primary.main">
-                    Xem Danh Sách Bầu Cử
-                  </Typography>
-                  <Typography variant="body1">
-                    Truy cập trang danh sách các cuộc bầu cử, xem thông tin chi tiết, thời gian bắt đầu và kết thúc của từng cuộc bầu cử.
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Box>
-
-            {/* Step 4 */}
-            <Box sx={{ 
-              display: 'flex', 
-              flexDirection: { xs: 'row', md: 'row-reverse' }, 
-              alignItems: 'center',
-              mb: 5,
-              position: 'relative'
-            }}>
-              <Box 
-                sx={{
-                  width: 40,
-                  height: 40,
-                  bgcolor: 'primary.main',
-                  color: 'white',
-                  borderRadius: '50%',
-                  display: 'flex',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  fontSize: 24,
-                  fontWeight: 'bold',
-                  ml: { xs: 0, md: 0 },
-                  mr: { xs: 2, md: 0 },
-                  zIndex: 1,
-                  boxShadow: 3,
-                  flexShrink: 0,
-                  order: { xs: 0, md: 2 }
-                }}
-              >
-                4
-              </Box>
-              <Card sx={{ 
-                ml: { xs: 0, md: 0 }, 
-                mr: { xs: 0, md: 3 },
-                width: { xs: 'calc(100% - 80px)', md: '45%' },
-                boxShadow: 3,
-                position: { md: 'absolute' },
-                right: { md: 0 },
-                top: { md: '-25px' },
-                order: { xs: 1, md: 1 }
-              }}>
-                <CardContent>
-                  <Typography variant="h5" component="h3" gutterBottom color="primary.main">
-                    Tìm Hiểu Thông Tin Ứng Cử Viên
-                  </Typography>
-                  <Typography variant="body1">
-                    Nghiên cứu thông tin về các ứng cử viên, bao gồm tiểu sử, thành tích, và cam kết của họ trước khi bỏ phiếu.
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Box>
-
-            {/* Step 5 */}
-            <Box sx={{ 
-              display: 'flex', 
-              flexDirection: { xs: 'row', md: 'row' }, 
-              alignItems: 'center',
-              mb: 5,
-              position: 'relative'
-            }}>
-              <Box 
-                sx={{
-                  width: 40,
-                  height: 40,
-                  bgcolor: 'primary.main',
-                  color: 'white',
-                  borderRadius: '50%',
-                  display: 'flex',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  fontSize: 24,
-                  fontWeight: 'bold',
-                  mr: { xs: 2, md: 0 },
-                  zIndex: 1,
-                  boxShadow: 3,
-                  flexShrink: 0
-                }}
-              >
-                5
-              </Box>
-              <Card sx={{ 
-                ml: { xs: 0, md: 3 }, 
-                width: { xs: 'calc(100% - 80px)', md: '45%' },
-                boxShadow: 3,
-                position: { md: 'absolute' },
-                left: { md: 0 },
-                top: { md: '-25px' }
-              }}>
-                <CardContent>
-                  <Typography variant="h5" component="h3" gutterBottom color="primary.main">
-                    Bỏ Phiếu 
-                  </Typography>
-                  <Typography variant="body1">
-                    Thực hiện quyền bầu cử của bạn bằng cách chọn ứng cử viên và xác nhận lựa chọn. Lá phiếu của bạn được mã hóa và lưu trữ an toàn trên blockchain.
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Box>
-
-            {/* Step 6 */}
-            <Box sx={{ 
-              display: 'flex', 
-              flexDirection: { xs: 'row', md: 'row-reverse' }, 
-              alignItems: 'center',
-              position: 'relative'
-            }}>
-              <Box 
-                sx={{
-                  width: 40,
-                  height: 40,
-                  bgcolor: 'primary.main',
-                  color: 'white',
-                  borderRadius: '50%',
-                  display: 'flex',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  fontSize: 24,
-                  fontWeight: 'bold',
-                  ml: { xs: 0, md: 0 },
-                  mr: { xs: 2, md: 0 },
-                  zIndex: 1,
-                  boxShadow: 3,
-                  flexShrink: 0,
-                  order: { xs: 0, md: 2 }
-                }}
-              >
-                6
-              </Box>
-              <Card sx={{ 
-                ml: { xs: 0, md: 0 }, 
-                mr: { xs: 0, md: 3 },
-                width: { xs: 'calc(100% - 80px)', md: '45%' },
-                boxShadow: 3,
-                position: { md: 'absolute' },
-                right: { md: 0 },
-                top: { md: '-25px' },
-                order: { xs: 1, md: 1 }
-              }}>
-                <CardContent>
-                  <Typography variant="h5" component="h3" gutterBottom color="primary.main">
-                    Xem Kết Quả
-                  </Typography>
-                  <Typography variant="body1">
-                    Sau khi cuộc bầu cử kết thúc, xem kết quả chính xác và minh bạch. Kết quả được lưu trữ trên blockchain nên không thể bị sửa đổi.
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Box>
-          </Box>
-              <br/>
-          <Box sx={{ textAlign: 'center', mt: 6 }}>
-            <Button 
-              variant="contained" 
-              color="primary" 
-              size="large"
-              onClick={() => navigate('/register')}
             >
-              Bắt đầu ngay
-            </Button>
-          </Box>
-        </Container>
-      </Box>
-
-      {/* Recent Articles Section */}
-      <Box sx={{ bgcolor: 'primary.main', color: 'white', py: 8 }}>
-        <Container maxWidth="lg">
-          <Box sx={{ textAlign: 'center', mb: 5 }}>
-            <ArticleIcon sx={{ fontSize: 48, mb: 1 }} />
-            <Typography variant="h3" component="h2" gutterBottom>
-              Bài Báo Về Blockchain & Bầu Cử
+              HỆ THỐNG BẦU CỬ TRỰC TUYẾN
             </Typography>
-            <Typography variant="subtitle1" sx={{ opacity: 0.8, maxWidth: '700px', mx: 'auto' }}>
-              Tìm hiểu thêm về cách blockchain đang cách mạng hóa hệ thống bầu cử trên toàn thế giới
+            
+            <Typography 
+              variant="h6" 
+              sx={{ 
+                color: '#546e7a', 
+                mb: 4, 
+                fontWeight: 400, 
+                textAlign: { xs: 'center', md: 'left' },
+                maxWidth: 500,
+                lineHeight: 1.6,
+              }}
+            >
+              Nền tảng bầu cử hiện đại, bảo mật và minh bạch. 
+              Tham gia bầu cử trực tuyến một cách dễ dàng và an toàn.
             </Typography>
+            
+            <Stack 
+              direction={{ xs: 'column', sm: 'row' }} 
+              spacing={2} 
+              sx={{ 
+                mb: 3, 
+                alignItems: { xs: 'center', sm: 'flex-start' },
+                width: '100%'
+              }}
+            >
+              <Button 
+                variant="contained"
+                size="large" 
+                onClick={() => navigate('/register')}
+                sx={{ 
+                  bgcolor: '#169385',
+                  color: '#fff',
+                  '&:hover': { bgcolor: '#0f6b5f' }
+                }}
+              >
+                Đăng ký
+              </Button>
+              
+              <Button 
+                variant="outlined"
+                size="large" 
+                onClick={() => navigate('/login')}
+                sx={{ 
+                  bgcolor: '#169385',
+                  color: '#fff',
+                  '&:hover': { bgcolor: '#0f6b5f' }
+                }}
+              >
+                Đăng nhập
+              </Button>
+              
+              {active ? (
+                <Chip
+                  icon={<AccountBalanceWalletIcon />}
+                  label={`Ví: ${account ? account.slice(0, 6) + '...' + account.slice(-4) : ''}`}
+                  onDelete={handleDisconnectWallet}
+                  sx={{ 
+                    bgcolor: '#e8f5e8', 
+                    color: '#169385', 
+                    border: '1px solid #169385'
+                  }}
+                />
+              ) : (
+                <Button 
+                  variant="contained"
+                  size="large" 
+                  onClick={handleConnectWallet}
+                  startIcon={<AccountBalanceWalletIcon />}
+                  sx={{ 
+                    bgcolor: '#169385',
+                    color: '#fff',
+                    '&:hover': { bgcolor: '#0f6b5f' }
+                  }}
+                >
+                  Kết nối ví MetaMask
+                </Button>
+              )}
+            </Stack>
           </Box>
           
+          {/* Right: Logo */}
+          <Box sx={{ 
+            flexShrink: 0, 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: { xs: 'center', md: 'flex-start' }, 
+            ml: { md: 4 }, 
+            mt: { xs: 3, md: 0 } 
+          }}>
+            <Box 
+              component="img" 
+              src={LogoIcon} 
+              alt="Logo hệ thống" 
+              sx={{ 
+                width: 520, 
+                height: 520,
+              }} 
+            />
+          </Box>
+        </Box>
+        
+        {/* Election Slider */}
+        <Box sx={{ mb: 6, minHeight: 100 }}>
+          <Typography 
+            variant="h4" 
+            sx={{ 
+              fontWeight: 700, 
+              mb: 4, 
+              color: '#169385', 
+              letterSpacing: 1, 
+              textAlign: 'center',
+            }}
+          >
+            Các cuộc bầu cử đang diễn ra
+          </Typography>
+          <ElectionSlider 
+            elections={ongoingElections} 
+            onClick={election => navigate(`/elections/${election.id}`)} 
+          />
+        </Box>
+        
+        {/* Features Section */}
+        <Box sx={{ mb: 6 }}>
+          <Typography 
+            variant="h4" 
+            sx={{ 
+              fontWeight: 700, 
+              mb: 4, 
+              color: '#169385', 
+              letterSpacing: 1, 
+              textAlign: 'center',
+            }}
+          >
+            Tính năng nổi bật
+          </Typography>
+          
           <Grid container spacing={4}>
-            {recentArticles.map((article, index) => (
+            {features.map((feature, index) => (
               <Grid item xs={12} md={4} key={index}>
-                <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column', bgcolor: 'primary.dark', color: 'white' }}>
-                  <Box sx={{ position: 'relative', pt: '60%' }}>
-                    <img 
-                      src={article.image} 
-                      alt={article.title}
-                      style={{ 
-                        position: 'absolute', 
-                        top: 0, 
-                        left: 0, 
-                        width: '100%', 
-                        height: '100%', 
-                        objectFit: 'cover',
-                        borderTopLeftRadius: '4px',
-                        borderTopRightRadius: '4px'
-                      }} 
-                    />
-                  </Box>
-                  <CardContent sx={{ flexGrow: 1 }}>
-                    <Typography variant="caption" sx={{ opacity: 0.8 }}>
-                      {article.date} • {article.source}
-                    </Typography>
-                    <Typography variant="h6" component="h3" gutterBottom sx={{ mt: 1, fontWeight: 'bold' }}>
-                      {article.title}
-                    </Typography>
-                    <Button 
-                      component="a" 
-                      href={article.url} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      variant="outlined" 
-                      color="inherit"
-                      size="small"
-                      sx={{ mt: 2 }}
+                <FeatureCard>
+                  <CardContent sx={{ textAlign: 'center', p: 4 }}>
+                    <Box sx={{ mb: 3 }}>
+                      {feature.icon}
+                    </Box>
+                    <Typography 
+                      variant="h6" 
+                      sx={{ 
+                        fontWeight: 700, 
+                        color: '#169385', 
+                        mb: 2,
+                      }}
                     >
-                      Đọc bài viết
-                    </Button>
+                      {feature.title}
+                    </Typography>
+                    <Typography 
+                      variant="body1" 
+                      sx={{ 
+                        color: '#546e7a', 
+                        lineHeight: 1.6 
+                      }}
+                    >
+                      {feature.description}
+                    </Typography>
                   </CardContent>
-                </Card>
+                </FeatureCard>
               </Grid>
             ))}
           </Grid>
-        </Container>
-      </Box>
-    </Box>
+        </Box>
+        
+        {/* Process Section */}
+        <Box>
+          <Typography 
+            variant="h4" 
+            sx={{ 
+              fontWeight: 700, 
+              mb: 4, 
+              color: '#169385', 
+              letterSpacing: 1, 
+              textAlign: 'center',
+            }}
+          >
+            Quy trình bầu cử
+          </Typography>
+          
+          <Typography 
+            variant="h6" 
+            sx={{ 
+              color: '#546e7a', 
+              mb: 6, 
+              fontWeight: 400, 
+              textAlign: 'center',
+              maxWidth: 800,
+              mx: 'auto',
+            }}
+          >
+            Đăng ký, tham gia bầu cử và xem kết quả một cách minh bạch, bảo mật, hiện đại.
+          </Typography>
+          
+          <Grid container spacing={4} sx={{ justifyContent: 'center' }}>
+            {[
+              { step: 1, title: 'Đăng ký / Đăng nhập', desc: 'Tạo tài khoản hoặc đăng nhập để bắt đầu.' },
+              { step: 2, title: 'Tham gia bầu cử', desc: 'Chọn cuộc bầu cử và bỏ phiếu an toàn.' },
+              { step: 3, title: 'Xem kết quả', desc: 'Kết quả minh bạch, cập nhật tức thì.' }
+            ].map((item, index) => (
+              <Grid item xs={12} md={4} key={index}>
+                <Box sx={{ 
+                  display: 'flex', 
+                  flexDirection: 'column', 
+                  alignItems: 'center', 
+                  textAlign: 'center',
+                  p: 3,
+                  background: '#fff',
+                  borderRadius: 20,
+                  border: '2px solid #e0f2f1',
+                  boxShadow: '0 4px 16px rgba(22, 147, 133, 0.1)',
+                  transition: 'all 0.3s ease',
+                  '&:hover': {
+                    transform: 'translateY(-4px)',
+                    boxShadow: '0 8px 24px rgba(22, 147, 133, 0.2)',
+                    border: '2px solid #169385',
+                  }
+                }}>
+                  <StepCircle sx={{ mb: 3 }}>
+                    {item.step}
+                  </StepCircle>
+                  <Typography 
+                    variant="h6" 
+                    sx={{ 
+                      fontWeight: 700, 
+                      color: '#169385', 
+                      mb: 2,
+                    }}
+                  >
+                    {item.title}
+                  </Typography>
+                  <Typography 
+                    variant="body1" 
+                    sx={{ 
+                      color: '#546e7a',
+                      lineHeight: 1.6,
+                    }}
+                  >
+                    {item.desc}
+                  </Typography>
+                </Box>
+              </Grid>
+            ))}
+          </Grid>
+        </Box>
+      </MainContainer>
+    </CleanBg>
   );
 };
 
-export default Home; 
+export default Home;

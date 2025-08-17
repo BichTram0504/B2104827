@@ -12,19 +12,67 @@ function ImageUpload({ label, value, onChange }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  const compressImage = (file) => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = (event) => {
+        const img = new Image();
+        img.src = event.target.result;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const MAX_WIDTH = 400;
+          const MAX_HEIGHT = 533;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > MAX_WIDTH) {
+              height *= MAX_WIDTH / width;
+              width = MAX_WIDTH;
+            }
+          } else {
+            if (height > MAX_HEIGHT) {
+              width *= MAX_HEIGHT / height;
+              height = MAX_HEIGHT;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+          
+          // Use lower compression for better quality
+          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.7);
+          
+          // Create a local storage reference to ensure image persistence
+          const timestamp = new Date().getTime();
+          const imageKey = `image_${timestamp}`;
+          try {
+            localStorage.setItem(imageKey, compressedDataUrl);
+            console.log('Image saved to localStorage with key:', imageKey);
+          } catch (e) {
+            console.error('Failed to save image to localStorage:', e);
+          }
+          
+          resolve(compressedDataUrl);
+        };
+      };
+    });
+  };
+
   const handleImageUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
 
-    // Kiểm tra loại file
     if (!file.type.startsWith('image/')) {
       setError('Vui lòng chọn file ảnh');
       return;
     }
 
-    // Kiểm tra kích thước file (tối đa 5MB)
-    if (file.size > 5 * 1024 * 1024) {
-      setError('Kích thước file không được vượt quá 5MB');
+    if (file.size > 2 * 1024 * 1024) {
+      setError('Kích thước file không được vượt quá 2MB');
       return;
     }
 
@@ -32,13 +80,12 @@ function ImageUpload({ label, value, onChange }) {
       setLoading(true);
       setError('');
 
-      // Tạo URL cho ảnh preview
-      const imageUrl = URL.createObjectURL(file);
-      onChange(imageUrl);
+      const compressedImage = await compressImage(file);
+      onChange(compressedImage);
+      setLoading(false);
     } catch (error) {
       console.error('Error uploading image:', error);
       setError('Không thể tải ảnh lên. Vui lòng thử lại.');
-    } finally {
       setLoading(false);
     }
   };
@@ -71,15 +118,32 @@ function ImageUpload({ label, value, onChange }) {
         </Typography>
       )}
       {value && (
-        <Box sx={{ mt: 2 }}>
-          <img
-            src={value}
+        <Box
+          sx={{
+            width: '100%',
+            maxWidth: 200,
+            margin: '0 auto',
+            position: 'relative',
+            '&::before': {
+              content: '""',
+              display: 'block',
+              paddingTop: '133.33%', // 3:4 aspect ratio
+            }
+          }}
+        >
+          <Box
+            component="img"
+            src={value || 'https://via.placeholder.com/200x267?text=Chọn+ảnh'}
             alt="Preview"
-            style={{
-              maxWidth: '100%',
-              maxHeight: '200px',
-              objectFit: 'contain',
-              borderRadius: '4px',
+            sx={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              borderRadius: 1,
+              boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
             }}
           />
         </Box>

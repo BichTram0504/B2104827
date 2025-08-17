@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import {
   Box,
   Button,
-  Typography,
   CircularProgress,
 } from '@mui/material';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
@@ -66,4 +65,4 @@ function ImageUpload({ onImageSelect, label = 'Upload Image', accept = 'image/*'
   );
 }
 
-export default ImageUpload; 
+export default ImageUpload;

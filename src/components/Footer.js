@@ -7,16 +7,22 @@ import {
   Link,
   Divider,
 } from '@mui/material';
+import { useLocation } from 'react-router-dom';
 
 function Footer() {
+  const location = useLocation();
+  const isAdminDashboard = location.pathname.startsWith('/admin');
+
   return (
     <Box
       component="footer"
       sx={{
-        bgcolor: 'primary.main',
+        bgcolor: 'transparent',
+        background: 'linear-gradient(90deg, #141619 0%, rgb(0, 109, 75) 100%)',
         color: 'white',
-        py: 6,
-        mt: 'auto',
+        py: 4,
+        mt: 0,
+        boxShadow: '0 -3px 5px rgba(0,0,0,0.2)'
       }}
     >
       <Container maxWidth="lg">
@@ -47,13 +53,13 @@ function Footer() {
             <Typography variant="h6" gutterBottom>
               Trợ Giúp
             </Typography>
-            <Link href="#" color="inherit" underline="hover" display="block" sx={{ mb: 1 }}>
+              <Link color="inherit"  display="block" sx={{ mb: 1, '&:hover': { color: '#80DEEA' },textDecoration: 'none' }}>
               Hướng dẫn sử dụng
             </Link>
-            <Link href="#" color="inherit" underline="hover" display="block" sx={{ mb: 1 }}>
+            <Link  color="inherit" display="block" sx={{ mb: 1, '&:hover': { color: '#80DEEA' },textDecoration: 'none' }}>
               Chính sách bảo mật
             </Link>
-            <Link href="#" color="inherit" underline="hover" display="block">
+            <Link  color="inherit" display="block" sx={{ '&:hover': { color: '#80DEEA' },textDecoration: 'none' }}>
               Điều khoản sử dụng
             </Link>
           </Grid>
@@ -67,4 +73,4 @@ function Footer() {
   );
 }
 
-export default Footer; 
+export default Footer;

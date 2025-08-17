@@ -4,133 +4,93 @@ import {
   Button, CircularProgress, Divider, Alert,
   List, ListItem, ListItemText, ListItemAvatar, 
   Avatar, Card, CardContent, CardHeader, 
-  IconButton
+  IconButton, Stack, Chip, Tooltip
 } from '@mui/material';
 import { 
   BarChart, PieChart
 } from '@mui/x-charts';
 import { useParams, useNavigate } from 'react-router-dom';
 import { formatDate } from '../utils/helpers';
-import { getElectionStatus } from '../utils/electionHelpers';
-import { ArrowBack as ArrowBackIcon, Person as PersonIcon, EmojiEvents as EmojiEventsIcon } from '@mui/icons-material';
+import { getElectionStatus, getStatusColor, getStatusText } from '../utils/electionHelpers';
+import { calculateElectionResults } from '../utils/electionResults';
+import { 
+  ArrowBack as ArrowBackIcon, 
+  Person as PersonIcon, 
+  EmojiEvents as EmojiEventsIcon,
+  BarChart as BarChartIcon,
+  PieChart as PieChartIcon,
+  Download as DownloadIcon,
+  Print as PrintIcon,
+  Info as InfoIcon
+} from '@mui/icons-material';
+import axios from 'axios';
 
 function ElectionResultsReport() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const [election, setElection] = useState(null);
-  const [candidates, setCandidates] = useState([]);
-  const [votes, setVotes] = useState([]);
+  const [results, setResults] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [results, setResults] = useState({
-    votesByCandidate: [],
-    totalVotes: 0,
-    participationRate: 0,
-    winner: null,
-  });
+  const [error, setError] = useState('');
+  const [expandedIndex, setExpandedIndex] = useState(null);
 
   useEffect(() => {
-    const fetchData = () => {
+    const loadResults = async () => {
       try {
-        // Lấy dữ liệu từ localStorage
-        const storedElections = JSON.parse(localStorage.getItem('elections')) || [];
-        const storedCandidates = JSON.parse(localStorage.getItem('candidates')) || [];
-        const storedVotes = JSON.parse(localStorage.getItem('votes')) || [];
-        const storedVoters = JSON.parse(localStorage.getItem('voters')) || [];
-
-        // Tìm cuộc bầu cử với id tương ứng
-        const foundElection = storedElections.find(e => e.id.toString() === id);
-        
-        if (!foundElection) {
-          setError('Không tìm thấy cuộc bầu cử');
-          setLoading(false);
-          return;
+        setLoading(true);
+        const electionId = id || localStorage.getItem('selectedElectionId');
+        if (!electionId) {
+          throw new Error('Không tìm thấy ID cuộc bầu cử');
         }
-
-        // Lọc danh sách ứng cử viên tham gia cuộc bầu cử này
-        const electionCandidates = storedCandidates.filter(
-          candidate => candidate.electionId === foundElection.id
-        );
-
-        // Lọc các phiếu bầu cho cuộc bầu cử này
-        const electionVotes = storedVotes.filter(
-          vote => vote.electionId === foundElection.id
-        );
-
-        // Tính toán kết quả
-        const voteCount = {};
-        electionCandidates.forEach(candidate => {
-          voteCount[candidate.id] = 0;
-        });
-
-        electionVotes.forEach(vote => {
-          if (voteCount[vote.candidateId] !== undefined) {
-            voteCount[vote.candidateId]++;
-          }
-        });
-
-        // Tạo mảng kết quả và sắp xếp theo số phiếu giảm dần
-        const votesByCandidate = electionCandidates.map(candidate => ({
-          candidate: candidate,
-          votes: voteCount[candidate.id] || 0
-        })).sort((a, b) => b.votes - a.votes);
-
-        const totalVotes = electionVotes.length;
-        const totalVoters = storedVoters.length;
-        const participationRate = totalVoters > 0 ? (totalVotes / totalVoters) * 100 : 0;
-        
-        // Xác định người chiến thắng (nếu có)
-        let winner = null;
-        if (votesByCandidate.length > 0 && votesByCandidate[0].votes > 0) {
-          winner = votesByCandidate[0].candidate;
-        }
-
-        setElection(foundElection);
-        setCandidates(electionCandidates);
-        setVotes(electionVotes);
-        setResults({
-          votesByCandidate,
-          totalVotes,
-          participationRate,
-          winner
-        });
-        
-        setLoading(false);
-      } catch (err) {
-        console.error('Lỗi khi tải dữ liệu:', err);
-        setError('Có lỗi xảy ra khi tải dữ liệu');
+        // Fetch kết quả từ backend
+        const res = await axios.get(`http://localhost:5000/api/elections/${electionId}/results`);
+        setResults(res.data);
+      } catch (error) {
+        console.error('Error loading election results:', error);
+        setError('Không thể tải kết quả bầu cử. Vui lòng thử lại sau.');
+      } finally {
         setLoading(false);
       }
     };
-
-    fetchData();
+    loadResults();
   }, [id]);
 
   const handleBack = () => {
     navigate(-1);
   };
 
+  const handlePrint = () => {
+    window.print();
+  };
+
   const renderCharts = () => {
-    if (results.votesByCandidate.length === 0) {
+    // Fix triệt để lỗi .length trên undefined
+    if (!results || !Array.isArray(results.votesByCandidate) || results.votesByCandidate.length === 0 || (results.totalVotes ?? 0) === 0) {
       return (
         <Alert severity="info" sx={{ mt: 3 }}>
-          Không có dữ liệu bầu cử để hiển thị biểu đồ.
+          Không có dữ liệu phiếu bầu để hiển thị biểu đồ.
         </Alert>
       );
     }
+    //biểu đồ
+    const barChartData = {
+      data: results.votesByCandidate.map(item => item.votes),
+      labels: results.votesByCandidate.map(item => item.candidate.name)
+    };
 
-    // Data cho biểu đồ cột
-    const barChartData = results.votesByCandidate.map(item => ({
-      name: item.candidate.name,
-      votes: item.votes
-    }));
-
-    // Data cho biểu đồ tròn
-    const pieChartData = results.votesByCandidate.map(item => ({
-      id: item.candidate.id,
-      value: item.votes,
-      label: item.candidate.name,
-    }));
+    const pieChartData = [
+      {
+        id: 'voted',
+        value: results.totalVotedVoters,
+        label: `Đã bỏ phiếu (${typeof results.participationRate === 'number' ? results.participationRate.toFixed(1) : '0.0'}%)`,
+        color: '#2196f3'
+      },
+      {
+        id: 'not_voted',
+        value: results.totalVoters - results.totalVotedVoters,
+        label: `Chưa bỏ phiếu (${typeof results.participationRate === 'number' ? (100 - results.participationRate).toFixed(1) : '0.0'}%)`,
+        color: '#e0e0e0'
+      }
+    ];
 
     return (
       <Grid container spacing={3} sx={{ mt: 1 }}>
@@ -139,20 +99,23 @@ function ElectionResultsReport() {
             <Typography variant="h6" gutterBottom>
               Biểu đồ phiếu bầu theo ứng cử viên
             </Typography>
-            <Box sx={{ height: 300, width: '100%' }}>
+            <Box sx={{ height: 300, width: '100%', mt: 2 }}>
               <BarChart
-                series={[
-                  {
-                    data: barChartData.map(item => item.votes),
-                    label: 'Số phiếu bầu',
-                    color: '#2196f3'
+                xAxis={[{
+                  scaleType: 'band',
+                  data: barChartData.labels,
+                  tickLabelStyle: {
+                     angle: -30,
+                     textAnchor: 'end',
+                     fontSize: 10
                   }
-                ]}
-                xAxis={[{ 
-                  data: barChartData.map(item => item.name),
-                  scaleType: 'band' 
+                }]}
+                series={[{
+                  data: barChartData.data,
+                  color: '#2196f3',
                 }]}
                 height={300}
+                margin={{ top: 20, bottom: 70, left: 40, right: 10 }}
               />
             </Box>
           </Paper>
@@ -160,24 +123,32 @@ function ElectionResultsReport() {
         <Grid item xs={12} md={6}>
           <Paper sx={{ p: 2, height: '100%' }}>
             <Typography variant="h6" gutterBottom>
-              Tỷ lệ phiếu bầu
+              Tỷ lệ tham gia bỏ phiếu
             </Typography>
-            <Box sx={{ height: 300, width: '100%', display: 'flex', justifyContent: 'center' }}>
+            <Box sx={{ height: 300, width: '100%', mt: 2 }}>
               <PieChart
-                series={[
-                  {
-                    data: pieChartData,
-                    highlightScope: { faded: 'global', highlighted: 'item' },
-                    faded: { innerRadius: 30, additionalRadius: -30, color: 'gray' },
-                  }
-                ]}
+                series={[{
+                  data: pieChartData,
+                  highlightScope: { faded: 'global', highlighted: 'item' },
+                  faded: { innerRadius: 30, additionalRadius: -30, color: 'gray' },
+                  innerRadius: 40,
+                  outerRadius: 100,
+                  paddingAngle: 1,
+                  cornerRadius: 3,
+                  cx: 120,
+                }]}
                 height={300}
-                margin={{ right: 120 }}
+                margin={{ top: 10, bottom: 10, left: 10, right: 100 }}
                 slotProps={{
                   legend: {
                     direction: 'column',
                     position: { vertical: 'middle', horizontal: 'right' },
                     padding: 0,
+                    itemMarkWidth: 10,
+                    itemMarkHeight: 10,
+                    labelStyle: {
+                       fontSize: 12,
+                    },
                   },
                 }}
               />
@@ -190,221 +161,184 @@ function ElectionResultsReport() {
 
   if (loading) {
     return (
-      <Container maxWidth="lg" sx={{ py: 4 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
-          <CircularProgress />
-        </Box>
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh">
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  if (error) {
+    return (
+      <Container>
+        <Alert severity="error" sx={{ mt: 3 }}>
+          {error}
+        </Alert>
+        <Button
+          startIcon={<ArrowBackIcon />}
+          onClick={() => navigate('/admin/dashboard')}
+          sx={{ mt: 2 }}
+        >
+          Quay lại
+        </Button>
       </Container>
     );
   }
 
-  if (error || !election) {
+  if (!results) {
     return (
-      <Container maxWidth="lg" sx={{ py: 4 }}>
-        <Button 
-          startIcon={<ArrowBackIcon />} 
-          onClick={handleBack}
-          sx={{ mb: 3 }}
+      <Container>
+        <Alert severity="warning" sx={{ mt: 3 }}>
+          Không tìm thấy kết quả bầu cử
+        </Alert>
+        <Button
+          startIcon={<ArrowBackIcon />}
+          onClick={() => navigate('/admin/dashboard')}
+          sx={{ mt: 2 }}
         >
           Quay lại
         </Button>
-        <Alert severity="error">
-          {error || 'Không tìm thấy dữ liệu cuộc bầu cử'}
-        </Alert>
-      </Container>
-    );
-  }
-
-  // Kiểm tra trạng thái của cuộc bầu cử
-  const status = getElectionStatus(election);
-  const isCompleted = status === 'completed';
-
-  if (!isCompleted) {
-    return (
-      <Container maxWidth="lg" sx={{ py: 4 }}>
-        <Button 
-          startIcon={<ArrowBackIcon />} 
-          onClick={handleBack}
-          sx={{ mb: 3 }}
-        >
-          Quay lại
-        </Button>
-        <Alert severity="warning">
-          Cuộc bầu cử này chưa kết thúc. Kết quả sẽ được hiển thị sau khi cuộc bầu cử kết thúc.
-        </Alert>
       </Container>
     );
   }
 
   return (
-    <Container maxWidth="lg" sx={{ py: 4 }}>
-      <Button 
-        startIcon={<ArrowBackIcon />} 
-        onClick={handleBack}
-        sx={{ mb: 3 }}
-      >
-        Quay lại
-      </Button>
-
-      <Paper sx={{ p: 3, mb: 4 }}>
-        <Typography variant="h4" gutterBottom>
-          Kết quả bầu cử: {election.title}
+    <Container maxWidth="lg" sx={{ py: 4, fontFamily: 'Roboto, Arial, sans-serif', bgcolor: 'transparent', marginTop: 10 }}>
+      <Box sx={{ mb: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
+        <Button
+          startIcon={<ArrowBackIcon />}
+          onClick={handleBack}
+          sx={{ borderRadius: 3, fontWeight: 700 }}
+        >
+          Quay lại
+        </Button>
+        <Stack direction="row" spacing={2}>
+          {/* Đã xóa nút tải xuống báo cáo (CSV) */}
+          <Tooltip title="In báo cáo">
+            <Button
+              variant="outlined"
+              startIcon={<PrintIcon />}
+              onClick={handlePrint}
+              sx={{ borderRadius: 3, fontWeight: 700 }}
+            >
+              In
+            </Button>
+          </Tooltip>
+        </Stack>
+      </Box>
+      <Box sx={{ mb: 4 }}>
+        <Typography variant="h4" component="h1" gutterBottom sx={{ fontWeight: 700, color: '#169385' }}>
+          Kết quả bầu cử 
         </Typography>
-        <Grid container spacing={2}>
-          <Grid item xs={12} md={8}>
-            <Typography variant="body1" paragraph>
-              <strong>Mô tả:</strong> {election.description || 'Không có mô tả'}
+        {results.election && (
+          <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 2, mb: 2 }}>
+            <Typography variant="h6" color="text.primary" sx={{ mr: 1, fontWeight: 700 }}>
+              {results.election.title}
             </Typography>
-            <Grid container spacing={2}>
-              <Grid item xs={12} sm={6}>
-                <Typography variant="body1">
-                  <strong>Thời gian bắt đầu:</strong> {formatDate(election.startTime)}
-                </Typography>
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <Typography variant="body1">
-                  <strong>Thời gian kết thúc:</strong> {formatDate(election.endTime)}
-                </Typography>
-              </Grid>
-            </Grid>
-          </Grid>
-          <Grid item xs={12} md={4}>
-            <Paper variant="outlined" sx={{ p: 2, bgcolor: 'action.hover' }}>
-              <Typography variant="h6" gutterBottom>
-                Tổng quan
-              </Typography>
-              <List dense>
-                <ListItem>
-                  <ListItemText 
-                    primary="Tổng số phiếu bầu" 
-                    secondary={results.totalVotes} 
-                  />
-                </ListItem>
-                <ListItem>
-                  <ListItemText 
-                    primary="Tổng số ứng cử viên" 
-                    secondary={candidates.length} 
-                  />
-                </ListItem>
-                <ListItem>
-                  <ListItemText 
-                    primary="Tỷ lệ tham gia" 
-                    secondary={`${results.participationRate.toFixed(1)}%`} 
-                  />
-                </ListItem>
-              </List>
-            </Paper>
-          </Grid>
-        </Grid>
-      </Paper>
-
-      {/* Hiển thị người thắng cử (nếu có) */}
-      {results.winner && (
-        <Card sx={{ mb: 4, bgcolor: '#f9fbe7' }}>
-          <CardHeader
-            title="Người Thắng Cuộc"
-            avatar={
-              <Avatar sx={{ bgcolor: '#4caf50' }}>
-                <EmojiEventsIcon />
-              </Avatar>
-            }
+            <Chip
+              label={getStatusText(getElectionStatus(results.election))}
+              color={getStatusColor(getElectionStatus(results.election))}
+              size="small"
+              sx={{ fontWeight: 600, fontSize: 15, px: 2, py: 0.5, borderRadius: 2 }}
+            />
+            <Typography variant="body2" color="text.secondary">
+              ({formatDate(results.election.startTime)} - {formatDate(results.election.endTime)})
+            </Typography>
+          </Box>
+        )}
+        <Divider />
+      </Box>
+      {results.election && results.election.logoUrl && (
+        <Box sx={{ width: '100%', display: 'flex', justifyContent: 'center', mb: 3 }}>
+          <Box
+            component="img"
+            src={results.election.logoUrl}
+            alt={results.election.title}
+            sx={{
+              width: '100%',
+              maxWidth: 600,
+              height: 'auto',
+              borderRadius: 4,
+              boxShadow: 3,
+              objectFit: 'cover',
+              background: '#f5f5f5',
+            }}
           />
-          <CardContent>
-            <Grid container spacing={3} alignItems="center">
-              <Grid item xs={12} sm={4} md={3}>
-                <Box
-                  component="img"
-                  src={results.winner.imageUrl || '/candidate-placeholder.png'}
-                  alt={results.winner.name}
-                  sx={{
-                    width: '100%',
-                    borderRadius: 2,
-                    mb: { xs: 2, sm: 0 },
-                    maxHeight: 200,
-                    objectFit: 'cover'
-                  }}
-                />
-              </Grid>
-              <Grid item xs={12} sm={8} md={9}>
-                <Typography variant="h5" gutterBottom>
-                  {results.winner.name}
-                </Typography>
-                <Typography variant="subtitle1" gutterBottom>
-                  {results.winner.position || 'Không có chức vụ'}
-                </Typography>
-                <Typography variant="body2" paragraph>
-                  {results.winner.description || 'Không có mô tả'}
-                </Typography>
-                <Typography variant="h6" color="success.main">
-                  Số phiếu bầu: {results.votesByCandidate[0].votes} 
-                  {results.totalVotes > 0 && ` (${((results.votesByCandidate[0].votes / results.totalVotes) * 100).toFixed(1)}%)`}
-                </Typography>
-              </Grid>
-            </Grid>
-          </CardContent>
-        </Card>
+        </Box>
       )}
-
-      {/* Biểu đồ kết quả */}
-      <Typography variant="h5" gutterBottom>
-        Biểu đồ kết quả
-      </Typography>
-      {renderCharts()}
-
-      {/* Danh sách chi tiết kết quả */}
-      <Typography variant="h5" sx={{ mt: 4, mb: 2 }}>
-        Kết quả chi tiết
-      </Typography>
-      <Paper>
-        <List>
-          {results.votesByCandidate.map((item, index) => (
-            <React.Fragment key={item.candidate.id}>
-              <ListItem 
-                secondaryAction={
-                  <Typography variant="h6">
-                    {item.votes} phiếu
-                    {results.totalVotes > 0 && 
-                      <Typography component="span" variant="body2" color="text.secondary" sx={{ ml: 1 }}>
-                        ({((item.votes / results.totalVotes) * 100).toFixed(1)}%)
-                      </Typography>
-                    }
-                  </Typography>
-                }
-              >
-                <ListItemAvatar>
-                  <Avatar 
-                    src={item.candidate.imageUrl} 
+      <Grid container spacing={3} sx={{ mb: 4 }}>
+        {Array.isArray(results.votesByCandidate) && results.votesByCandidate.length > 0 && results.totalVotedVoters > 0 ? (
+          results.votesByCandidate
+            .slice()
+            .sort((a, b) => (b.percentage || 0) - (a.percentage || 0))
+            .map((item, index) => (
+              <Grid item xs={12} key={item.candidate._id}>
+                <Card sx={{ display: 'flex', alignItems: 'center', p: 3, borderRadius: 4, boxShadow: 3, bgcolor: '#fff', mb: 2 }}>
+                  <Box
+                    component="img"
+                    src={item.candidate.imageUrl || 'https://via.placeholder.com/240x320?text=No+Image'}
                     alt={item.candidate.name}
-                    sx={{ 
-                      width: 50, 
-                      height: 50,
-                      mr: 2,
-                      bgcolor: index === 0 ? 'success.light' : 'grey.300'
+                    sx={{
+                      width: 180,
+                      height: 240,
+                      objectFit: 'cover',
+                      borderRadius: 3,
+                      boxShadow: 2,
+                      mr: 4,
+                      background: '#f5f5f5',
                     }}
-                  >
-                    {!item.candidate.imageUrl && <PersonIcon />}
-                  </Avatar>
-                </ListItemAvatar>
-                <ListItemText
-                  primary={
-                    <Typography variant="h6">
-                      {index === 0 && results.winner && <EmojiEventsIcon sx={{ color: 'warning.main', mr: 1, verticalAlign: 'middle' }} />}
+                  />
+                  <Box sx={{ flex: 1 }}>
+                    <Typography variant="h5" fontWeight={700} color="primary.main" gutterBottom>
                       {item.candidate.name}
                     </Typography>
-                  }
-                  secondary={item.candidate.position || 'Không có chức vụ'}
-                  primaryTypographyProps={{ 
-                    fontWeight: index === 0 ? 'bold' : 'normal' 
-                  }}
-                />
-              </ListItem>
-              {index < results.votesByCandidate.length - 1 && <Divider variant="inset" component="li" />}
-            </React.Fragment>
-          ))}
-        </List>
-      </Paper>
+                    <Typography variant="body1" color="text.secondary" gutterBottom>
+                      {item.candidate.position || 'Không có chức vụ'}
+                    </Typography>
+                    {/* Thanh progress bar kết quả */}
+                    <Box sx={{ width: '100%', mb: 2, mt: 2 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 600, color: '#169385', minWidth: 80 }}>
+                          {item.votes}/{results.totalVotedVoters} phiếu
+                        </Typography>
+                        <Box sx={{ flex: 1, mx: 2 }}>
+                          <Box sx={{ width: '100%', height: 18, bgcolor: 'grey.200', borderRadius: 9, overflow: 'hidden', position: 'relative' }}>
+                            <Box sx={{
+                              width: `${item.percentage}%`,
+                              height: '100%',
+                              bgcolor: item.percentage >= 50 ? 'primary.main' : '#4fc3f7',
+                              borderRadius: 9,
+                              transition: 'width 0.5s',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'flex-end',
+                              pr: 2,
+                              color: '#fff',
+                              fontWeight: 700,
+                              fontSize: 15
+                            }}>
+                              {item.percentage.toFixed(1)}%
+                            </Box>
+                          </Box>
+                        </Box>
+                      </Box>
+                    </Box>
+                    <Typography variant="body2" color="text.secondary">
+                      {item.candidate.achievements && (<><b>Thành tích:</b> {item.candidate.achievements}<br /></>)}
+                      {item.candidate.motto && (<><b>Châm ngôn:</b> {item.candidate.motto}</>)}
+                    </Typography>
+                  </Box>
+                </Card>
+              </Grid>
+            ))
+        ) : (
+          <Grid item xs={12}>
+            <Alert severity="info" variant="outlined">Không có dữ liệu phiếu bầu chi tiết.</Alert>
+          </Grid>
+        )}
+      </Grid>
+      {results && Array.isArray(results.votesByCandidate) && results.votesByCandidate.length > 0 && results.totalVotedVoters > 0 && renderCharts()}
     </Container>
   );
 }
 
-export default ElectionResultsReport; 
+export default ElectionResultsReport;

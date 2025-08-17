@@ -45,7 +45,9 @@ import {
   CardActions,
   Snackbar,
   ButtonGroup,
+  Tooltip,
 } from '@mui/material';
+import RateLimitNotification from '../components/RateLimitNotification';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
@@ -61,10 +63,151 @@ import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { LoadingButton } from '@mui/lab';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import ImageUpload from '../components/ImageUpload';
-import ElectionResultsReport from '../components/ElectionResultsReport';
+import ElectionResultsReport from './ElectionResultsReport';
 import { formatDate } from '../utils/helpers';
 import { getElectionStatus, getStatusColor, getStatusText } from '../utils/electionHelpers';
 import CloseIcon from '@mui/icons-material/Close';
+import VisibilityIcon from '@mui/icons-material/Visibility';
+import axios from 'axios';
+import * as XLSX from 'xlsx';
+import LockIcon from '@mui/icons-material/Lock';
+import LockOpenIcon from '@mui/icons-material/LockOpen';
+import { createTheme, ThemeProvider } from '@mui/material/styles';
+import { Line } from 'react-chartjs-2';
+import 'chart.js/auto';
+import { format, getISOWeek, getYear } from 'date-fns';
+import PeopleIcon from '@mui/icons-material/People';
+import MenuIcon from '@mui/icons-material/Menu';
+import LogoutIcon from '@mui/icons-material/Logout';
+import Brightness4Icon from '@mui/icons-material/Brightness4';
+import Brightness7Icon from '@mui/icons-material/Brightness7';
+import Chatbot from '../components/Chatbot';
+
+// Theme kết hợp: sidebar đen, nội dung trắng
+const adminTheme = createTheme({
+  palette: {
+    mode: 'light',
+    primary: {
+      main: '#169385',
+      contrastText: '#fff',
+    },
+    background: {
+      default: '#f9fafe',
+      paper: '#fff',
+      sidebar: '#f5f7fa',
+    },
+    text: {
+      primary: '#222',
+      secondary: '#555',
+      sidebar: '#169385',
+    },
+  },
+  typography: {
+    fontFamily: 'Roboto, Arial, sans-serif',
+    h4: { fontWeight: 700, fontSize: 36, letterSpacing: 1, color: '#169385' },
+    h5: { fontWeight: 600, fontSize: 24, color: '#169385' },
+    body1: { fontSize: 18, color: '#222' },
+    button: { fontWeight: 600, fontSize: 16 },
+  },
+  shape: {
+    borderRadius: 18,
+  },
+  components: {
+    MuiPaper: {
+      styleOverrides: {
+        root: {
+          borderRadius: 18,
+          boxShadow: '0 4px 24px 0 rgba(33,150,243,0.08)',
+          backgroundColor: '#fff',
+        },
+      },
+    },
+    MuiTableContainer: {
+      styleOverrides: {
+        root: {
+          borderRadius: 18,
+          boxShadow: '0 2px 12px 0 rgba(33, 150, 243, 0.04)',
+          backgroundColor: '#fff',
+        },
+      },
+    },
+    MuiDialog: {
+      styleOverrides: {
+        paper: {
+          borderRadius: 22,
+          backgroundColor: '#fff',
+        },
+      },
+    },
+    MuiButton: {
+      styleOverrides: {
+        root: {
+          borderRadius: 12,
+          textTransform: 'none',
+          fontWeight: 600,
+          fontSize: 16,
+        },
+      },
+    },
+    MuiTab: {
+      styleOverrides: {
+        root: {
+          minHeight: 56,
+          fontWeight: 600,
+          fontSize: 18,
+          borderRadius: 12,
+          marginBottom: 8,
+          transition: 'background 0.2s, color 0.2s',
+          color: '#169385',
+          background: '#f5f7fa',
+          '&.Mui-selected': {
+            background: '#fff',
+            color: '#169385',
+            boxShadow: '0 2px 8px 0 rgba(33,150,243,0.08)',
+          },
+          '&:hover': {
+            background: '#e3eafc',
+            color: '#169385',
+          },
+        },
+      },
+    },
+    MuiTableCell: {
+      styleOverrides: {
+        root: {
+          fontSize: 16,
+          padding: '16px 12px',
+          borderBottom: '1px solid #f0f0f0',
+        },
+        head: {
+          fontWeight: 700,
+          color: '#169385',
+          background: '#f5f7fa',
+          fontSize: 17,
+        },
+      },
+    },
+    MuiTableRow: {
+      styleOverrides: {
+        root: {
+          transition: 'background 0.1s',
+          '&:hover': {
+            background: '#f0f6ff',
+          },
+        },
+      },
+    },
+    MuiAvatar: {
+      styleOverrides: {
+        root: {
+          width: 56,
+          height: 56,
+          fontSize: 22,
+        },
+      },
+    },
+  },
+});
 
 function AdminDashboard() {
   const navigate = useNavigate();
@@ -75,6 +218,7 @@ function AdminDashboard() {
   const [openCandidateDialog, setOpenCandidateDialog] = useState(false);
   const [selectedElection, setSelectedElection] = useState(null);
   const [activeTab, setActiveTab] = useState(0);
+  const [sidebarOpen, setSidebarOpen] = useState(true); // Thêm state cho sidebar
   const [electionFormData, setElectionFormData] = useState({
     title: '',
     description: '',
@@ -95,6 +239,7 @@ function AdminDashboard() {
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+  const [rateLimitInfo, setRateLimitInfo] = useState({ open: false, message: '', code: '', retryAfter: null });
   const [openEditCandidateDialog, setOpenEditCandidateDialog] = useState(false);
   const [selectedCandidate, setSelectedCandidate] = useState(null);
   const [admins, setAdmins] = useState([]);
@@ -103,14 +248,61 @@ function AdminDashboard() {
     name: '',
     cccd: '',
     email: '',
+    password: '',
+    isSuperAdmin: false
+  });
+  const [adminFieldErrors, setAdminFieldErrors] = useState({
+    name: '',
+    cccd: '',
+    email: '',
     password: ''
   });
   const [selectedElectionIdForResult, setSelectedElectionIdForResult] = useState(null);
   const [showElectionResults, setShowElectionResults] = useState(false);
-  const [viewMode, setViewMode] = useState('elections'); // 'elections', 'candidates', 'results'
+  const [viewMode, setViewMode] = useState('overview'); // 'overview' mặc định
   const [filteredCandidates, setFilteredCandidates] = useState([]);
   const [selectedElectionForCandidates, setSelectedElectionForCandidates] = useState(null);
   const [openViewCandidateDialog, setOpenViewCandidateDialog] = useState(false);
+  // 1. State cho sửa election
+  const [openEditElectionDialog, setOpenEditElectionDialog] = useState(false);
+  const [editElectionData, setEditElectionData] = useState(null);
+  const [votes, setVotes] = useState([]);
+  const [chartMode, setChartMode] = useState('day'); // 'day' | 'week' | 'month'
+  const [allCandidates, setAllCandidates] = useState([]);
+  const [darkMode, setDarkMode] = useState(true);
+  // State lưu toàn bộ phiếu bầu
+  const [allVotes, setAllVotes] = useState([]);
+  // Thêm state riêng cho form sửa election
+  const [editElectionFormData, setEditElectionFormData] = useState({ title: '', description: '', startTime: null, endTime: null, logoUrl: '' });
+
+  const initialCandidateFormData = {
+    name: '',
+    birthDate: null,
+    hometown: '',
+    position: '',
+    achievements: '',
+    motto: '',
+    imageUrl: '',
+    electionId: ''
+  };
+
+  const [openAddCandidateDialog, setOpenAddCandidateDialog] = useState(false);
+  // State cho import excel
+  const [openImportDialog, setOpenImportDialog] = useState(false);
+  const [importedCandidates, setImportedCandidates] = useState([]);
+  const [importLoading, setImportLoading] = useState(false);
+  const [importError, setImportError] = useState('');
+  
+  // State cho dialog xem chi tiết cuộc bầu cử của cử tri
+  const [openVoterElectionsDialog, setOpenVoterElectionsDialog] = useState(false);
+  const [selectedVoterElections, setSelectedVoterElections] = useState([]);
+  const [selectedVoterName, setSelectedVoterName] = useState('');
+
+  // State để theo dõi quyền admin
+  const [adminPermissions, setAdminPermissions] = useState({
+    isSuperAdmin: false,
+    isLoading: true
+  });
 
   // Kiểm tra đăng nhập admin
   useEffect(() => {
@@ -128,9 +320,6 @@ function AdminDashboard() {
       
       console.log("Admin authenticated successfully");
       
-      // Tạo dữ liệu mẫu nếu chưa có
-      createSampleData();
-      
       // Tải danh sách admin
       loadAdmins();
     };
@@ -138,102 +327,108 @@ function AdminDashboard() {
     checkAdminLogin();
   }, [navigate]);
 
-  // Tạo dữ liệu mẫu nếu chưa có
-  const createSampleData = () => {
-    // Tạo danh sách bầu cử mẫu nếu chưa có
-    if (!localStorage.getItem('elections')) {
-      const sampleElections = [
-        {
-          id: '1',
-          title: 'Bầu cử hội đồng nhân dân 2023',
-          description: 'Cuộc bầu cử đại biểu hội đồng nhân dân các cấp nhiệm kỳ 2023-2028',
-          startTime: new Date(2023, 6, 1),
-          endTime: new Date(2023, 6, 15),
-          logoUrl: '',
-          status: 'completed'
-        },
-        {
-          id: '2',
-          title: 'Bầu cử trưởng thôn 2024',
-          description: 'Cuộc bầu cử trưởng thôn, tổ trưởng tổ dân phố nhiệm kỳ 2024-2026',
-          startTime: new Date(2024, 0, 15),
-          endTime: new Date(2024, 1, 15),
-          logoUrl: '',
-          status: 'active'
-        }
-      ];
-      localStorage.setItem('elections', JSON.stringify(sampleElections));
-    }
-    
-    // Tạo danh sách ứng cử viên mẫu nếu chưa có
-    if (!localStorage.getItem('candidates')) {
-      const sampleCandidates = [
-        {
-          id: '1',
-          name: 'Nguyễn Văn Đạt',
-          birthDate: new Date(1980, 0, 15),
-          hometown: 'Hà Nội',
-          position: 'Đại biểu HĐND',
-          achievements: 'Đã có 10 năm kinh nghiệm trong lĩnh vực hành chính công',
-          motto: 'Vì nhân dân phục vụ',
-          imageUrl: '',
-          electionId: '1'
-        },
-        {
-          id: '2',
-          name: 'Trần Thị Linh',
-          birthDate: new Date(1985, 5, 10),
-          hometown: 'Hồ Chí Minh',
-          position: 'Trưởng thôn',
-          achievements: 'Tích cực tham gia các hoạt động cộng đồng, phát triển kinh tế địa phương',
-          motto: 'Đoàn kết, xây dựng quê hương',
-          imageUrl: '',
-          electionId: '2'
-        }
-      ];
-      localStorage.setItem('candidates', JSON.stringify(sampleCandidates));
-    }
-    
-    // Tạo danh sách cử tri mẫu nếu chưa có
-    if (!localStorage.getItem('voters')) {
-      const sampleVoters = [
-        {
-          cccd: '123456789012',
-          fullName: 'Lê Minh Huy',
-          address: 'Số 1, Đường Lý Thường Kiệt, Hà Nội',
-          birthDate: new Date(1990, 3, 20),
-          password: 'password123'
-        },
-        {
-          cccd: '234567890123',
-          fullName: 'Phạm Thị Duy',
-          address: 'Số 25, Đường Nguyễn Huệ, Hồ Chí Minh',
-          birthDate: new Date(1988, 7, 15),
-          password: 'password456'
-        }
-      ];
-      localStorage.setItem('voters', JSON.stringify(sampleVoters));
-    }
-  };
+  // Thiết lập global function để hiển thị thông báo rate limit
+  useEffect(() => {
+    window.showRateLimitNotification = (message, code, retryAfter = null) => {
+      let severity = 'warning';
+      let displayMessage = message;
+      
+      // Tùy chỉnh thông báo theo loại rate limit
+      switch (code) {
+        case 'LOGIN_RATE_LIMIT_EXCEEDED':
+          severity = 'error';
+          displayMessage = 'Quá nhiều lần đăng nhập thất bại. Vui lòng thử lại sau 15 phút.';
+          break;
+        case 'VOTE_RATE_LIMIT_EXCEEDED':
+          severity = 'error';
+          displayMessage = 'Quá nhiều lần thử bỏ phiếu. Vui lòng thử lại sau 1 giờ.';
+          break;
+        case 'ELECTION_CREATE_RATE_LIMIT_EXCEEDED':
+          severity = 'warning';
+          displayMessage = 'Quá nhiều lần tạo cuộc bầu cử. Vui lòng thử lại sau 1 giờ.';
+          break;
+        case 'CHATBOT_RATE_LIMIT_EXCEEDED':
+          severity = 'info';
+          displayMessage = 'Quá nhiều tin nhắn chatbot. Vui lòng thử lại sau 5 phút.';
+          break;
+        default:
+          severity = 'warning';
+          displayMessage = message || 'Quá nhiều yêu cầu. Vui lòng thử lại sau.';
+      }
+      
+      // Hiển thị cả snackbar và dialog chi tiết
+      showSnackbar(displayMessage, severity);
+      showRateLimitInfo(displayMessage, code, retryAfter);
+    };
+
+    // Cleanup function
+    return () => {
+      delete window.showRateLimitNotification;
+    };
+  }, []);
 
   // Load data khi component mount
   useEffect(() => {
     loadElections();
     loadCandidates();
+    loadAllCandidates();
     loadVoters();
+    loadVotes();
   }, []);
 
-  // Cập nhật filteredCandidates khi candidates thay đổi
+  // Sửa useEffect cập nhật filteredCandidates:
   useEffect(() => {
-    console.log('useEffect: candidates changed, updating filteredCandidates');
-    console.log('Current viewMode:', viewMode);
-    console.log('selectedElectionForCandidates:', selectedElectionForCandidates);
-    
     if (viewMode === 'candidates' && selectedElectionForCandidates) {
-      console.log('Calling filterCandidatesByElection from useEffect');
       filterCandidatesByElection(selectedElectionForCandidates);
     }
-  }, [candidates, viewMode, selectedElectionForCandidates]);
+  }, [viewMode, selectedElectionForCandidates]);
+
+  // Xử lý reset activeTab khi admin thay đổi (từ super admin sang admin thường)
+  useEffect(() => {
+    if (!adminPermissions.isSuperAdmin && activeTab === 3) {
+      // Nếu không phải super admin và đang ở tab quản lý admin, chuyển về tab tổng quan
+      setActiveTab(0);
+    }
+  }, [activeTab, adminPermissions.isSuperAdmin]);
+
+  // Cập nhật quyền admin khi admins data thay đổi
+  useEffect(() => {
+    const updateAdminPermissions = () => {
+      try {
+        const adminCCCD = localStorage.getItem('adminCCCD');
+        const isSuperAdminFromStorage = localStorage.getItem('isSuperAdmin') === 'true';
+        
+        if (adminCCCD && admins.length > 0) {
+          const currentAdmin = admins.find(admin => admin.cccd === adminCCCD);
+          const isSuper = currentAdmin?.isSuperAdmin || isSuperAdminFromStorage;
+          
+          setAdminPermissions({
+            isSuperAdmin: isSuper,
+            isLoading: false
+          });
+        } else if (adminCCCD) {
+          // Fallback về localStorage nếu admins chưa load
+          setAdminPermissions({
+            isSuperAdmin: isSuperAdminFromStorage,
+            isLoading: false
+          });
+        } else {
+          setAdminPermissions({
+            isSuperAdmin: false,
+            isLoading: false
+          });
+        }
+      } catch (error) {
+        console.error('Error updating admin permissions:', error);
+        setAdminPermissions({
+          isSuperAdmin: false,
+          isLoading: false
+        });
+      }
+    };
+
+    updateAdminPermissions();
+  }, [admins]);
 
   // Hiển thị thông báo
   const showSnackbar = (message, severity = 'success') => {
@@ -244,80 +439,59 @@ function AdminDashboard() {
     setSnackbar({ ...snackbar, open: false });
   };
 
-  const loadElections = () => {
+  // Hiển thị thông báo rate limit chi tiết
+  const showRateLimitInfo = (message, code, retryAfter = null) => {
+    setRateLimitInfo({ open: true, message, code, retryAfter });
+  };
+
+  const hideRateLimitInfo = () => {
+    setRateLimitInfo({ ...rateLimitInfo, open: false });
+  };
+
+  // 1. Tối ưu loadElections, loadCandidates, loadVoters: loading rõ ràng, luôn cập nhật state mới nhất
+  const loadElections = async () => {
     try {
       setLoading(true);
-      // Lấy danh sách bầu cử từ localStorage
-      const storedElections = localStorage.getItem('elections');
-      if (storedElections) {
-        setElections(JSON.parse(storedElections));
-      }
+      const res = await axios.get('http://localhost:5000/api/elections');
+      setElections(res.data);
     } catch (error) {
-      console.error('Error loading elections:', error);
       showSnackbar('Không thể tải danh sách bầu cử', 'error');
+      setElections([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+  const loadCandidates = async (electionId) => {
+    try {
+      setLoading(true);
+      let url = 'http://localhost:5000/api/candidates';
+      if (electionId) url += `?electionId=${electionId}`;
+      const res = await axios.get(url);
+      setCandidates(res.data);
+      if (electionId) setFilteredCandidates(res.data);
+    } catch (error) {
+      showSnackbar('Không thể tải danh sách ứng cử viên', 'error');
+      setCandidates([]);
+      setFilteredCandidates([]);
     } finally {
       setLoading(false);
     }
   };
 
-  const loadCandidates = () => {
-    console.log('Loading candidates from localStorage');
+  // Đảm bảo hàm loadVoters vẫn tồn tại:
+  const loadVoters = async () => {
     try {
-      const storedCandidatesStr = localStorage.getItem('candidates');
-      if (storedCandidatesStr) {
-        try {
-          const parsedCandidates = JSON.parse(storedCandidatesStr);
-          console.log(`Loaded ${parsedCandidates.length} candidates from localStorage`);
-          
-          // Ensure all candidates have string IDs
-          const normalizedCandidates = parsedCandidates.map(candidate => ({
-            ...candidate,
-            id: String(candidate.id),
-            electionId: candidate.electionId ? String(candidate.electionId) : ''
-          }));
-          
-          setCandidates(normalizedCandidates);
-          
-          // If in candidates view, update filtered candidates
-          if (viewMode === 'candidates' && selectedElectionForCandidates) {
-            console.log('Filtering candidates for election:', selectedElectionForCandidates);
-            const filtered = normalizedCandidates.filter(
-              c => c.electionId && String(c.electionId) === String(selectedElectionForCandidates)
-            );
-            console.log(`Found ${filtered.length} candidates for this election`);
-            setFilteredCandidates(filtered);
-          }
-        } catch (parseError) {
-          console.error('Error parsing candidates from localStorage:', parseError);
-          setCandidates([]);
-          setFilteredCandidates([]);
-        }
-      } else {
-        console.log('No candidates found in localStorage');
-        setCandidates([]);
-        setFilteredCandidates([]);
-      }
+      setLoading(true);
+      const jwt = localStorage.getItem('jwt');
+      const res = await axios.get('http://localhost:5000/api/voters', {
+        headers: { Authorization: `Bearer ${jwt}` }
+      });
+      setVoters(res.data);
     } catch (error) {
-      console.error('Error loading candidates:', error);
-      showSnackbar('Không thể tải danh sách ứng cử viên', 'error');
-    }
-  };
-
-  const loadVoters = () => {
-    try {
-      // Lấy danh sách cử tri từ localStorage
-      const storedVoters = localStorage.getItem('voters');
-      if (storedVoters) {
-        const voters = JSON.parse(storedVoters);
-        console.log("Loaded voters:", voters);
-        setVoters(voters);
-      } else {
-        console.log("No voters found in localStorage");
-        setVoters([]);
-      }
-    } catch (error) {
-      console.error('Error loading voters:', error);
       showSnackbar('Không thể tải danh sách cử tri', 'error');
+      setVoters([]);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -328,50 +502,36 @@ function AdminDashboard() {
     }
   }, [activeTab]);
 
-  const handleCreateElection = () => {
+  // Thêm mới cuộc bầu cử
+  const handleCreateElection = async () => {
     try {
       setCreating(true);
-      setError('');
-      
-      // Lấy dữ liệu từ form
-      const formData = { ...electionFormData };
-      console.log("Creating election with form data:", formData);
-      
-      // Kiểm tra thông tin
-      if (!formData.title || !formData.startTime || !formData.endTime) {
-        setError('Vui lòng điền đầy đủ thông tin bắt buộc');
-        console.log("Missing required fields");
+      const { title, description, startTime, endTime, logoUrl } = electionFormData;
+      if (!title) {
+        showSnackbar('Vui lòng nhập tiêu đề cuộc bầu cử', 'error');
         setCreating(false);
         return;
       }
-
-      // Tạo ID cho cuộc bầu cử mới
-      const electionId = Date.now().toString();
-      
-      // Tạo cuộc bầu cử mới
-      const newElection = {
-        id: electionId,
-        title: formData.title,
-        description: formData.description || '',
-        startTime: formData.startTime instanceof Date ? formData.startTime.toISOString() : formData.startTime,
-        endTime: formData.endTime instanceof Date ? formData.endTime.toISOString() : formData.endTime,
-        logoUrl: formData.logoUrl || '',
-        status: 'upcoming',
-        candidates: []
-      };
-      
-      console.log("New election object:", newElection);
-
-      // Cập nhật danh sách bầu cử
-      const updatedElections = [...elections, newElection];
-      setElections(updatedElections);
-      
-      // Lưu vào localStorage
-      localStorage.setItem('elections', JSON.stringify(updatedElections));
-      console.log("Elections saved to localStorage:", updatedElections);
-
-      // Đóng dialog và reset form
-      setOpenElectionDialog(false);
+      if (!startTime || !endTime) {
+        showSnackbar('Vui lòng chọn thời gian bắt đầu và kết thúc', 'error');
+        setCreating(false);
+        return;
+      }
+      if (startTime >= endTime) {
+        showSnackbar('Thời gian kết thúc phải sau thời gian bắt đầu', 'error');
+        setCreating(false);
+        return;
+      }
+      const jwt = localStorage.getItem('jwt');
+      await axios.post('http://localhost:5000/api/elections', {
+        title,
+        description,
+        startTime,
+        endTime,
+        logoUrl
+      }, {
+        headers: { Authorization: `Bearer ${jwt}` }
+      });
       setElectionFormData({
         title: '',
         description: '',
@@ -379,199 +539,235 @@ function AdminDashboard() {
         endTime: null,
         logoUrl: '',
       });
-      
-      showSnackbar('Tạo cuộc bầu cử thành công');
+      setOpenElectionDialog(false);
+      await loadElections(); // Luôn gọi lại loadElections để đồng bộ dữ liệu mới nhất
+      showSnackbar('Đã tạo cuộc bầu cử mới', 'success');
     } catch (error) {
       console.error('Error creating election:', error);
-      showSnackbar('Không thể tạo cuộc bầu cử. Vui lòng thử lại sau.', 'error');
+      
+      // Xử lý rate limit errors
+      if (error.response?.status === 429) {
+        const rateLimitData = error.response.data;
+        if (rateLimitData?.code === 'ELECTION_CREATE_RATE_LIMIT_EXCEEDED') {
+          showSnackbar('Quá nhiều lần tạo cuộc bầu cử. Vui lòng thử lại sau 1 giờ.', 'warning');
+        } else {
+          showSnackbar(rateLimitData?.error || 'Quá nhiều yêu cầu. Vui lòng thử lại sau.', 'warning');
+        }
+      } else {
+        showSnackbar('Có lỗi xảy ra khi tạo cuộc bầu cử', 'error');
+      }
     } finally {
       setCreating(false);
     }
   };
 
-  // Handle adding candidate
-  const handleAddCandidate = (electionId) => {
-    console.log('handleAddCandidate called with electionId:', electionId);
-    
-    if (!electionId) {
-      console.error('No election ID provided for adding candidate');
-      showSnackbar('Vui lòng chọn cuộc bầu cử trước khi thêm ứng cử viên', 'error');
+  // Sửa cuộc bầu cử (nếu có chức năng chỉnh sửa, thêm hàm tương tự dùng axios.put)
+
+  // Xóa cuộc bầu cử
+  const handleDeleteElection = async (id) => {
+    try {
+      const idStr = String(id);
+      const electionToDelete = elections.find(election => String(election._id || election.id) === idStr);
+      if (!electionToDelete) {
+        showSnackbar('Không tìm thấy cuộc bầu cử', 'error');
         return;
       }
+      if (!window.confirm(`Bạn có chắc chắn muốn xóa cuộc bầu cử "${electionToDelete.title}"? Tất cả dữ liệu liên quan sẽ bị xóa và không thể khôi phục.`)) {
+        return;
+      }
+      const jwt = localStorage.getItem('jwt');
+      await axios.delete(`http://localhost:5000/api/elections/${idStr}`, {
+        headers: { Authorization: `Bearer ${jwt}` }
+      });
+      await loadElections(); // Luôn gọi lại API để cập nhật state
+      showSnackbar(`Đã xóa cuộc bầu cử "${electionToDelete.title}" và tất cả dữ liệu liên quan`, 'success');
+    } catch (error) {
+      const msg = error.response?.data?.error || 'Đã xảy ra lỗi khi xóa cuộc bầu cử';
+      showSnackbar(msg, 'error');
+      console.error('Lỗi khi xóa cuộc bầu cử:', error);
+    }
+  };
 
-    // Reset form data và lưu election đã chọn
-    resetCandidateForm();
-    setSelectedElection(electionId.toString());
-    
-    // Thiết lập giá trị mặc định cho form
+  // Thêm mới ứng cử viên
+  const handleSaveCandidate = async () => {
+    try {
+      setCreating(true);
+      if (!selectedElection) {
+        showSnackbar('Vui lòng chọn cuộc bầu cử', 'error');
+        setCreating(false);
+        return;
+      }
+      const { name, birthDate, hometown, position, achievements, motto, imageUrl } = candidateFormData;
+      if (!name) {
+        showSnackbar('Vui lòng nhập tên ứng cử viên', 'error');
+        setCreating(false);
+        return;
+      }
+      const jwt = localStorage.getItem('jwt');
+      await axios.post('http://localhost:5000/api/candidates', {
+        name,
+        birthDate: birthDate ? birthDate.toISOString() : null,
+        hometown,
+        position,
+        achievements,
+        motto,
+        imageUrl: imageUrl || '',
+        electionId: selectedElection
+      }, {
+        headers: { Authorization: `Bearer ${jwt}` }
+      });
       setCandidateFormData({
         name: '',
         birthDate: null,
         hometown: '',
         position: '',
-      description: '',
         achievements: '',
         motto: '',
         imageUrl: '',
       });
-      
-    console.log('Opening candidate dialog for election ID:', electionId);
-    setOpenCandidateDialog(true);
-  };
-
-  const handleTabChange = (event, newValue) => {
-    setActiveTab(newValue);
-  };
-
-  const handleDeleteElection = (id) => {
-    try {
-      // Chuyển đổi id sang string để đảm bảo so sánh đúng
-      const idStr = id.toString();
-      
-      // Tìm thông tin cuộc bầu cử cần xóa để hiển thị trong xác nhận
-      const electionToDelete = elections.find(election => election.id.toString() === idStr);
-      
-      if (!electionToDelete) {
-        showSnackbar('Không tìm thấy cuộc bầu cử', 'error');
-        return;
-      }
-
-      // Kiểm tra trạng thái cuộc bầu cử - không cho phép xóa cuộc bầu cử đang diễn ra
-      const status = getElectionStatus(electionToDelete);
-      if (status === 'active') {
-        showSnackbar('Không thể xóa cuộc bầu cử đang diễn ra', 'error');
-        return;
-      }
-
-      // Yêu cầu xác nhận trước khi xóa
-      if (!window.confirm(`Bạn có chắc chắn muốn xóa cuộc bầu cử "${electionToDelete.title}"? Tất cả dữ liệu liên quan sẽ bị xóa và không thể khôi phục.`)) {
-        return;
-      }
-      
-      // Xóa các ứng cử viên thuộc cuộc bầu cử này
-      const candidatesToDelete = candidates.filter(candidate => candidate.electionId.toString() === idStr);
-      if (candidatesToDelete.length > 0) {
-        const updatedCandidates = candidates.filter(candidate => candidate.electionId.toString() !== idStr);
-      setCandidates(updatedCandidates);
-      localStorage.setItem('candidates', JSON.stringify(updatedCandidates));
-        console.log(`Đã xóa ${candidatesToDelete.length} ứng cử viên thuộc cuộc bầu cử ${idStr}`);
-      }
-      
-      // Xóa dữ liệu phiếu bầu
-      localStorage.removeItem(`votes_${idStr}`);
-      localStorage.removeItem(`showResults_${idStr}`);
-      localStorage.removeItem(`sample_votes_generated_${idStr}`);
-      
-      // Xóa cuộc bầu cử
-      const updatedElections = elections.filter(election => election.id.toString() !== idStr);
-    setElections(updatedElections);
-    localStorage.setItem('elections', JSON.stringify(updatedElections));
-      
-      showSnackbar(`Đã xóa cuộc bầu cử "${electionToDelete.title}" và tất cả dữ liệu liên quan`, 'success');
+      setOpenCandidateDialog(false);
+      await loadCandidates(selectedElection);
+      await loadAllCandidates(); // cập nhật tổng số ứng viên
+      showSnackbar('Đã thêm ứng cử viên mới', 'success');
     } catch (error) {
-      console.error('Lỗi khi xóa cuộc bầu cử:', error);
-      showSnackbar('Đã xảy ra lỗi khi xóa cuộc bầu cử', 'error');
+      console.error('Error saving candidate:', error, error?.response?.data);
+      
+      // Xử lý rate limit errors
+      if (error.response?.status === 429) {
+        const rateLimitData = error.response.data;
+        showSnackbar(rateLimitData?.error || 'Quá nhiều yêu cầu. Vui lòng thử lại sau.', 'warning');
+      } else {
+        showSnackbar('Có lỗi xảy ra khi thêm ứng cử viên', 'error');
+      }
+    } finally {
+      setCreating(false);
     }
   };
 
-  const handleDeleteCandidate = (id) => {
-    console.log('Delete candidate called with ID:', id);
-    
+  // Sửa ứng cử viên
+  const handleUpdateCandidate = async () => {
     try {
-      // Convert ID to string for consistent comparison
-      const candidateId = String(id);
-      
-      // Get data from localStorage
-      const storedCandidatesStr = localStorage.getItem('candidates');
-      if (!storedCandidatesStr) {
-        console.error('No candidates found in localStorage');
-        showSnackbar('Không tìm thấy dữ liệu ứng cử viên', 'error');
+      setCreating(true);
+      if (!selectedCandidate) {
+        showSnackbar('Không tìm thấy ứng cử viên để cập nhật', 'error');
+        setCreating(false);
         return;
       }
-      
-      const storedCandidates = JSON.parse(storedCandidatesStr);
-      console.log('Current candidates in localStorage:', storedCandidates);
-      
-      // Find candidate to delete
-      const candidateToDelete = storedCandidates.find(c => String(c.id) === candidateId);
+      const { name, birthDate, hometown, position, achievements, motto, imageUrl } = candidateFormData;
+      if (!name) {
+        showSnackbar('Vui lòng nhập tên ứng cử viên', 'error');
+        setCreating(false);
+        return;
+      }
+      const jwt = localStorage.getItem('jwt');
+      await axios.put(`http://localhost:5000/api/candidates/${selectedCandidate._id || selectedCandidate.id}`, {
+        name,
+        birthDate: birthDate ? (typeof birthDate === 'string' ? birthDate : birthDate.toISOString()) : null,
+        hometown,
+        position,
+        achievements,
+        motto,
+        imageUrl: imageUrl || '',
+        electionId: selectedCandidate.electionId
+      }, {
+        headers: { Authorization: `Bearer ${jwt}` }
+      });
+      setCandidateFormData({
+        name: '',
+        birthDate: null,
+        hometown: '',
+        position: '',
+        achievements: '',
+        motto: '',
+        imageUrl: '',
+      });
+      setOpenEditCandidateDialog(false);
+      setSelectedCandidate(null);
+      await loadCandidates(selectedElection);
+      await loadAllCandidates(); // cập nhật tổng số ứng viên
+      showSnackbar('Đã cập nhật ứng cử viên thành công', 'success');
+    } catch (error) {
+      console.error('Error updating candidate:', error);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  // Xóa ứng cử viên
+  const handleDeleteCandidate = async (id) => {
+    try {
+      const candidateId = String(id);
+      const candidateToDelete = candidates.find(c => String(c._id || c.id) === candidateId);
       if (!candidateToDelete) {
-        console.error('Candidate not found with ID:', candidateId);
         showSnackbar('Không tìm thấy ứng cử viên', 'error');
         return;
       }
-      
-      console.log('Found candidate to delete:', candidateToDelete);
-      
-      // Confirm deletion
       if (!window.confirm(`Bạn có chắc chắn muốn xóa ứng cử viên "${candidateToDelete.name}"?`)) {
-        console.log('User cancelled deletion');
         return;
       }
-      
-      // Filter out the candidate to be deleted
-      const updatedCandidates = storedCandidates.filter(c => String(c.id) !== candidateId);
-      
-      console.log('Updated candidate list:', updatedCandidates);
-      console.log('Removed:', candidateToDelete);
-      
-      // Update localStorage
-    localStorage.setItem('candidates', JSON.stringify(updatedCandidates));
-      
-      // Update state
-      setCandidates(updatedCandidates);
-      
-      // Update filtered candidates if in the Candidates tab
-      if (viewMode === 'candidates' && selectedElectionForCandidates) {
-        const newFiltered = updatedCandidates.filter(
-          c => c.electionId && String(c.electionId) === String(selectedElectionForCandidates)
-        );
-        setFilteredCandidates(newFiltered);
-      }
-      
+      const jwt = localStorage.getItem('jwt');
+      await axios.delete(`http://localhost:5000/api/candidates/${candidateId}`, {
+        headers: { Authorization: `Bearer ${jwt}` }
+      });
+      await loadCandidates(selectedElection); // Luôn gọi lại API để cập nhật state
+      await loadAllCandidates();
       showSnackbar(`Đã xóa ứng cử viên "${candidateToDelete.name}" thành công`, 'success');
-      
-      // Reload to ensure UI is updated
-      setTimeout(() => {
-        loadCandidates();
-        if (viewMode === 'candidates' && selectedElectionForCandidates) {
-          filterCandidatesByElection(selectedElectionForCandidates);
-        }
-      }, 300);
-      
     } catch (error) {
-      console.error('Error deleting candidate:', error);
-      showSnackbar('Đã xảy ra lỗi khi xóa ứng cử viên', 'error');
+      const msg = error.response?.data?.error || 'Đã xảy ra lỗi khi xóa ứng cử viên';
+      showSnackbar(msg, 'error');
+      console.error('Lỗi khi xóa ứng cử viên:', error);
     }
   };
 
-  // Thêm chức năng xóa cử tri
-  const handleDeleteVoter = (cccd) => {
+  // Xóa cử tri
+  const handleDeleteVoter = async (cccd) => {
     try {
-      // Tìm thông tin cử tri cần xóa để hiển thị trong xác nhận
-      const voterToDelete = voters.find(voter => voter.cccd === cccd);
-      
+      const voterToDelete = voters.find(v => String(v.cccd) === String(cccd));
       if (!voterToDelete) {
         showSnackbar('Không tìm thấy cử tri', 'error');
         return;
       }
-      
-      // Yêu cầu xác nhận trước khi xóa
-      if (!window.confirm(`Bạn có chắc chắn muốn xóa cử tri "${voterToDelete.fullName}" (CCCD: ${voterToDelete.cccd})? Dữ liệu này không thể khôi phục.`)) {
+      if (!window.confirm(`Bạn có chắc chắn muốn xóa cử tri "${voterToDelete.fullName}" (CCCD: ${voterToDelete.cccd})?`)) {
         return;
       }
-      
-      // Xóa dữ liệu phiếu bầu của cử tri
-      localStorage.removeItem(`voter_${cccd}_voted`);
-      
-      // Xóa cử tri
-      const updatedVoters = voters.filter(voter => voter.cccd !== cccd);
-      setVoters(updatedVoters);
-      localStorage.setItem('voters', JSON.stringify(updatedVoters));
-      
+      const jwt = localStorage.getItem('jwt');
+      await axios.delete(`http://localhost:5000/api/voters/${cccd}`, {
+        headers: { Authorization: `Bearer ${jwt}` }
+      });
+      await loadVoters();
       showSnackbar(`Đã xóa cử tri "${voterToDelete.fullName}" thành công`, 'success');
     } catch (error) {
+      const msg = error.response?.data?.error || 'Đã xảy ra lỗi khi xóa cử tri';
+      showSnackbar(msg, 'error');
       console.error('Lỗi khi xóa cử tri:', error);
-      showSnackbar('Đã xảy ra lỗi khi xóa cử tri', 'error');
+    }
+  };
+
+  // Thêm chức năng xóa cử tri
+  const handleToggleVoterActive = async (cccd, currentActive) => {
+    try {
+      const voterToUpdate = voters.find(voter => String(voter.cccd) === String(cccd));
+      if (!voterToUpdate) {
+        showSnackbar('Không tìm thấy cử tri', 'error');
+        return;
+      }
+      const action = currentActive ? 'khóa' : 'mở khóa';
+      if (!window.confirm(`Bạn có chắc chắn muốn ${action} cử tri "${voterToUpdate.fullName}" (CCCD: ${voterToUpdate.cccd})?`)) {
+        return;
+      }
+      const jwt = localStorage.getItem('jwt');
+      await axios.patch(`http://localhost:5000/api/voters/${String(cccd)}/lock`, {
+        isActive: !currentActive
+      }, {
+        headers: { Authorization: `Bearer ${jwt}` }
+      });
+      setVoters(prev => prev.map(voter =>
+        String(voter.cccd) === String(cccd) ? { ...voter, isActive: !currentActive } : voter
+      ));
+      showSnackbar(`Đã ${action} cử tri "${voterToUpdate.fullName}" thành công`, 'success');
+    } catch (error) {
+      console.error('Lỗi khi cập nhật trạng thái cử tri:', error);
+      showSnackbar('Đã xảy ra lỗi khi cập nhật trạng thái cử tri', 'error');
     }
   };
 
@@ -594,7 +790,6 @@ function AdminDashboard() {
           setError('Kích thước file không được vượt quá 5MB');
           return;
         }
-        
         const reader = new FileReader();
         reader.onload = (e) => {
           setLogoPreview(e.target.result);
@@ -605,47 +800,45 @@ function AdminDashboard() {
       }
     };
 
-    const handleSave = () => {
+    const handleSave = async () => {
       if (!title) {
         setError('Vui lòng nhập tiêu đề cuộc bầu cử');
         return;
       }
-      
       if (!startTime || !endTime) {
         setError('Vui lòng chọn thời gian bắt đầu và kết thúc');
         return;
       }
-      
       if (startTime >= endTime) {
         setError('Thời gian kết thúc phải sau thời gian bắt đầu');
         return;
       }
-      
       setLoading(true);
-      
-      // Cập nhật dữ liệu form và gọi hàm tạo cuộc bầu cử
-      setElectionFormData({
-        title,
-        description,
-        startTime,
-        endTime,
-        logoUrl
-      });
-      
-      console.log("Form data being saved:", {
-        title,
-        description,
-        startTime,
-        endTime,
-        logoUrl
-      });
-      
-      // Gọi onSave ngay lập tức
       try {
-        onSave();
+        const jwt = localStorage.getItem('jwt');
+        await axios.post('http://localhost:5000/api/elections', {
+          title,
+          description,
+          startTime,
+          endTime,
+          logoUrl
+        }, {
+          headers: { Authorization: `Bearer ${jwt}` }
+        });
+        setTitle('');
+        setDescription('');
+        setStartTime(new Date());
+        setEndTime(new Date(new Date().setDate(new Date().getDate() + 7)));
+        setLogoUrl('');
+        setLogoFile(null);
+        setLogoPreview('');
+        setError('');
+        setLoading(false);
+        onClose();
+        await loadElections();
+        showSnackbar('Đã tạo cuộc bầu cử mới', 'success');
       } catch (error) {
-        console.error("Error saving election:", error);
-      } finally {
+        setError('Có lỗi xảy ra khi tạo cuộc bầu cử');
         setLoading(false);
       }
     };
@@ -757,7 +950,7 @@ function AdminDashboard() {
     console.log('Edit candidate called with:', candidate);
     
     try {
-      if (!candidate || !candidate.id) {
+      if (!candidate || (!candidate.id && !candidate._id)) {
         console.error('Invalid candidate data:', candidate);
         showSnackbar('Dữ liệu ứng cử viên không hợp lệ', 'error');
         return;
@@ -765,15 +958,14 @@ function AdminDashboard() {
       
       // Convert candidate data to ensure all fields are present
       const candidateData = {
-        id: String(candidate.id),
+        id: String(candidate.id || candidate._id),
         name: candidate.name || '',
-      birthDate: candidate.birthDate ? new Date(candidate.birthDate) : null,
-      hometown: candidate.hometown || '',
-      position: candidate.position || '',
-        description: candidate.description || '',
-      achievements: candidate.achievements || '',
-      motto: candidate.motto || '',
-      imageUrl: candidate.imageUrl || '',
+        birthDate: candidate.birthDate ? new Date(candidate.birthDate) : null,
+        hometown: candidate.hometown || '',
+        position: candidate.position || '',
+        achievements: candidate.achievements || '',
+        motto: candidate.motto || '',
+        imageUrl: candidate.imageUrl || '',
         electionId: candidate.electionId ? String(candidate.electionId) : ''
       };
       
@@ -783,12 +975,11 @@ function AdminDashboard() {
       setSelectedCandidate(candidateData);
       
       // Set the form data
-    setCandidateFormData({
+      setCandidateFormData({
         name: candidateData.name,
         birthDate: candidateData.birthDate,
         hometown: candidateData.hometown,
         position: candidateData.position,
-        description: candidateData.description,
         achievements: candidateData.achievements,
         motto: candidateData.motto,
         imageUrl: candidateData.imageUrl,
@@ -810,189 +1001,40 @@ function AdminDashboard() {
     }
   };
 
-  // Hàm cập nhật thông tin ứng cử viên sau khi chỉnh sửa
-  const handleUpdateCandidate = () => {
-    console.log('Update candidate called');
-    setCreating(true);
-    setError('');
-    
-    try {
-      // Validate input
-      if (!candidateFormData.name || !candidateFormData.birthDate) {
-        setError('Vui lòng điền đầy đủ thông tin bắt buộc');
-        setCreating(false);
-        return;
-      }
-      
-      // Check if we have a candidate to update
-      if (!selectedCandidate || !selectedCandidate.id) {
-        setError('Không tìm thấy thông tin ứng cử viên để cập nhật');
-        setCreating(false);
-        return;
-      }
-      
-      console.log('Selected candidate to update:', selectedCandidate);
-      console.log('Form data for update:', candidateFormData);
-      
-      // Get current candidates from localStorage
-      const storedCandidatesStr = localStorage.getItem('candidates');
-      if (!storedCandidatesStr) {
-        setError('Không tìm thấy dữ liệu ứng cử viên');
-        setCreating(false);
-        return;
-      }
-      
-      const storedCandidates = JSON.parse(storedCandidatesStr);
-      
-      // Create updated candidate object
-      const updatedCandidate = {
-        ...selectedCandidate,
-        name: candidateFormData.name.trim(),
-            birthDate: candidateFormData.birthDate,
-        hometown: candidateFormData.hometown || '',
-        position: candidateFormData.position || '',
-        description: candidateFormData.description || '',
-        achievements: candidateFormData.achievements || '',
-        motto: candidateFormData.motto || '',
-        imageUrl: candidateFormData.imageUrl || '',
-        // Make sure to keep the same ID and electionId
-        id: selectedCandidate.id,
-        electionId: selectedCandidate.electionId
+  // Thêm hàm tối ưu hóa ảnh
+  const optimizeImage = (base64String, maxWidth = 800, maxHeight = 800) => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+
+        // Tính toán kích thước mới
+        if (width > height) {
+          if (width > maxWidth) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          }
+        } else {
+          if (height > maxHeight) {
+            width = Math.round((width * maxHeight) / height);
+            height = maxHeight;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+
+        // Chuyển đổi sang base64 với chất lượng 0.8
+        const optimizedBase64 = canvas.toDataURL('image/jpeg', 0.8);
+        resolve(optimizedBase64);
       };
-      
-      console.log('Updated candidate object:', updatedCandidate);
-      
-      // Find and update the candidate in the array
-      const candidateId = String(selectedCandidate.id);
-      const candidateIndex = storedCandidates.findIndex(c => String(c.id) === candidateId);
-      
-      if (candidateIndex === -1) {
-        setError('Không tìm thấy ứng cử viên trong danh sách');
-        setCreating(false);
-        return;
-      }
-      
-      // Replace the candidate at the found index
-      storedCandidates[candidateIndex] = updatedCandidate;
-      
-      // Save to localStorage
-      localStorage.setItem('candidates', JSON.stringify(storedCandidates));
-      
-      // Update state
-      setCandidates(storedCandidates);
-      
-      // Close dialog and reset form
-      setOpenEditCandidateDialog(false);
-      resetCandidateForm();
-      setSelectedCandidate(null);
-      
-      // Update filtered candidates if in Candidates tab
-      if (viewMode === 'candidates' && selectedElectionForCandidates) {
-        const filtered = storedCandidates.filter(
-          c => c.electionId && String(c.electionId) === String(selectedElectionForCandidates)
-        );
-        setFilteredCandidates(filtered);
-      }
-      
-      // Show success message
-      showSnackbar('Cập nhật ứng cử viên thành công', 'success');
-      
-      // Reload candidates to ensure UI is updated
-      setTimeout(loadCandidates, 300);
-      
-    } catch (error) {
-      console.error('Error updating candidate:', error);
-      setError('Đã xảy ra lỗi khi cập nhật ứng cử viên: ' + error.message);
-    } finally {
-      setCreating(false);
-    }
-  };
-  
-  // Hàm lưu thông tin ứng cử viên mới
-  const handleSaveCandidate = () => {
-    try {
-      setCreating(true);
-      setError('');
-      
-      console.log('Saving new candidate with form data:', candidateFormData);
-      console.log('Selected election ID:', selectedElection);
-      
-      // Kiểm tra thông tin
-      if (!candidateFormData.name || !candidateFormData.birthDate) {
-        setError('Vui lòng điền đầy đủ thông tin bắt buộc');
-        setCreating(false);
-        return;
-      }
-
-      // Kiểm tra tuổi (phải trên 18 tuổi)
-      const birthDate = new Date(candidateFormData.birthDate);
-      const today = new Date();
-      const age = today.getFullYear() - birthDate.getFullYear();
-      const monthDiff = today.getMonth() - birthDate.getMonth();
-      if (age < 18 || (age === 18 && monthDiff < 0)) {
-        setError('Ứng cử viên phải đủ 18 tuổi trở lên');
-        setCreating(false);
-        return;
-      }
-
-      // Kiểm tra xem đã chọn cuộc bầu cử chưa
-      if (!selectedElection) {
-        setError('Vui lòng chọn cuộc bầu cử cho ứng cử viên');
-        setCreating(false);
-        return;
-      }
-
-      // Tạo ID cho ứng cử viên mới
-      const candidateId = Date.now().toString();
-      
-      // Tạo ứng cử viên mới
-      const newCandidate = {
-        id: candidateId,
-        name: candidateFormData.name.trim(),
-        birthDate: candidateFormData.birthDate,
-        hometown: candidateFormData.hometown || '',
-        position: candidateFormData.position || '',
-        description: candidateFormData.description || '',
-        achievements: candidateFormData.achievements || '',
-        motto: candidateFormData.motto || '',
-        imageUrl: candidateFormData.imageUrl || '',
-        electionId: selectedElection
-      };
-
-      console.log('Created new candidate:', newCandidate);
-
-      // Đọc danh sách ứng cử viên hiện tại từ localStorage
-      const storedCandidates = JSON.parse(localStorage.getItem('candidates') || '[]');
-      console.log('Current candidates in localStorage:', storedCandidates.length);
-      
-      // Cập nhật danh sách ứng cử viên
-      const updatedCandidates = [...storedCandidates, newCandidate];
-      console.log('Updated candidates list:', updatedCandidates.length);
-      
-      // Cập nhật state và localStorage
-      setCandidates(updatedCandidates);
-      localStorage.setItem('candidates', JSON.stringify(updatedCandidates));
-      console.log('Saved candidates to localStorage');
-
-      // Đóng dialog và reset form
-      setOpenCandidateDialog(false);
-      resetCandidateForm();
-      
-      // Cập nhật danh sách ứng cử viên được lọc
-      if (viewMode === 'candidates' && selectedElectionForCandidates) {
-        console.log('Updating filtered candidates view');
-        setTimeout(() => {
-          filterCandidatesByElection(selectedElectionForCandidates);
-        }, 100);
-      }
-      
-      showSnackbar('Thêm ứng cử viên thành công');
-      setCreating(false);
-    } catch (error) {
-      console.error('Error adding candidate:', error);
-      showSnackbar('Không thể thêm ứng cử viên. Vui lòng thử lại sau.', 'error');
-      setCreating(false);
-    }
+      img.onerror = reject;
+      img.src = base64String;
+    });
   };
 
   // Thêm hàm để mở dialog sửa ứng cử viên
@@ -1009,38 +1051,25 @@ function AdminDashboard() {
   };
 
   // Thêm hàm tải danh sách admin
-  const loadAdmins = () => {
+  const loadAdmins = async () => {
     try {
-      const storedAdmins = localStorage.getItem('admins');
-      if (storedAdmins) {
-        setAdmins(JSON.parse(storedAdmins));
-      } else {
-        // Tạo danh sách admin mẫu nếu chưa có
-        const currentAdminCCCD = localStorage.getItem('adminCCCD');
-        const currentAdminName = localStorage.getItem('adminName') || 'Admin';
-        
-        const initialAdmins = [
-          {
-            id: '1',
-            name: currentAdminName,
-            cccd: currentAdminCCCD,
-            email: 'admin@example.com',
-            createdAt: new Date()
-          }
-        ];
-        localStorage.setItem('admins', JSON.stringify(initialAdmins));
-        setAdmins(initialAdmins);
-      }
+      const jwt = localStorage.getItem('jwt');
+      const res = await axios.get('http://localhost:5000/api/admins', {
+        headers: { Authorization: `Bearer ${jwt}` }
+      });
+      setAdmins(res.data);
     } catch (error) {
       console.error('Error loading admins:', error);
+      setAdmins([]);
     }
   };
 
   // Thêm hàm xử lý thêm admin mới
-  const handleAddAdmin = () => {
+  const handleAddAdmin = async () => {
     try {
       setLoading(true);
       setError('');
+      setAdminFieldErrors({ name: '', cccd: '', email: '', password: '' });
       
       // Kiểm tra dữ liệu nhập vào
       if (!adminFormData.name || !adminFormData.cccd || !adminFormData.email || !adminFormData.password) {
@@ -1048,131 +1077,104 @@ function AdminDashboard() {
         setLoading(false);
         return;
       }
-      
       // Kiểm tra định dạng CCCD (12 chữ số)
-      if (!/^\d{12}$/.test(adminFormData.cccd)) {
-        setError('CCCD phải có đúng 12 chữ số');
+      if (!/^[0-9]{12}$/.test(adminFormData.cccd)) {
+        setAdminFieldErrors(prev => ({ ...prev, cccd: 'CCCD phải có đúng 12 chữ số' }));
         setLoading(false);
         return;
       }
-      
       // Kiểm tra email hợp lệ
       if (!/\S+@\S+\.\S+/.test(adminFormData.email)) {
-        setError('Email không hợp lệ');
+        setAdminFieldErrors(prev => ({ ...prev, email: 'Email không hợp lệ' }));
         setLoading(false);
         return;
       }
-      
-      // Kiểm tra CCCD đã tồn tại chưa
-      const storedAdmins = JSON.parse(localStorage.getItem('admins') || '[]');
-      const adminExists = storedAdmins.some(admin => admin.cccd === adminFormData.cccd);
-      if (adminExists) {
-        setError('CCCD này đã được sử dụng');
-        setLoading(false);
-        return;
-      }
-      
-      // Thêm admin mới
-      const newAdmin = {
-        id: Date.now().toString(),
-        name: adminFormData.name,
+      // Gửi API tạo admin
+      const jwt = localStorage.getItem('jwt');
+      await axios.post('http://localhost:5000/api/admins', {
         cccd: adminFormData.cccd,
+        name: adminFormData.name,
         email: adminFormData.email,
-        createdAt: new Date()
-      };
-      
-      // Lưu thông tin đăng nhập của admin vào localStorage
-      const loginData = JSON.parse(localStorage.getItem('loginData') || '{}');
-      loginData[adminFormData.cccd] = {
         password: adminFormData.password,
-        isAdmin: true,
-        name: adminFormData.name
-      };
-      localStorage.setItem('loginData', JSON.stringify(loginData));
-      
-      // Cập nhật danh sách admin
-      const updatedAdmins = [...storedAdmins, newAdmin];
-      localStorage.setItem('admins', JSON.stringify(updatedAdmins));
-      setAdmins(updatedAdmins);
-      
-      // Hiển thị thông báo thành công
-      setSnackbar({
-        open: true,
-        message: 'Thêm admin mới thành công',
-        severity: 'success'
+        isSuperAdmin: !!adminFormData.isSuperAdmin
+      }, {
+        headers: { Authorization: `Bearer ${jwt}` }
       });
-      
-      // Đóng dialog và reset form
       setOpenAddAdminDialog(false);
-      setAdminFormData({
-        name: '',
-        cccd: '',
-        email: '',
-        password: ''
-      });
+      setAdminFormData({ name: '', cccd: '', email: '', password: '', isSuperAdmin: false });
+      setAdminFieldErrors({ name: '', cccd: '', email: '', password: '' });
+      await loadAdmins();
+      showSnackbar('Thêm admin mới thành công', 'success');
     } catch (error) {
-      console.error('Error adding admin:', error);
-      setError('Có lỗi xảy ra khi thêm admin');
+      const errorData = error?.response?.data;
+      
+      // Xử lý rate limit errors
+      if (error.response?.status === 429) {
+        const rateLimitData = error.response.data;
+        showSnackbar(rateLimitData?.error || 'Quá nhiều yêu cầu. Vui lòng thử lại sau.', 'warning');
+        return;
+      }
+      
+      if (errorData?.duplicateFields) {
+        // Hiển thị lỗi cho từng trường bị trùng
+        const newFieldErrors = { name: '', cccd: '', email: '', password: '' };
+        errorData.duplicateFields.forEach(field => {
+          if (field === 'CCCD') {
+            newFieldErrors.cccd = 'CCCD đã tồn tại trong hệ thống';
+          } else if (field === 'Email') {
+            newFieldErrors.email = 'Email đã tồn tại trong hệ thống';
+          }
+        });
+        setAdminFieldErrors(newFieldErrors);
+        setError(`${errorData.duplicateFields.join(' và ')} đã tồn tại trong hệ thống. Vui lòng kiểm tra lại thông tin.`);
+      } else if (errorData?.code === 'DUPLICATE_ENTRY' || error?.response?.status === 409) {
+        // Backend trả về mã lỗi trùng lặp, hiển thị thông báo phù hợp và đánh dấu trường liên quan
+        const message = errorData?.error || 'Thông tin đã tồn tại trong hệ thống';
+        const newFieldErrors = { name: '', cccd: '', email: '', password: '' };
+        if (message.includes('CCCD')) newFieldErrors.cccd = 'CCCD đã tồn tại trong hệ thống';
+        if (message.includes('Email')) newFieldErrors.email = 'Email đã tồn tại trong hệ thống';
+        setAdminFieldErrors(newFieldErrors);
+        setError(message);
+      } else {
+        setError(errorData?.error || 'Có lỗi xảy ra khi thêm admin');
+      }
     } finally {
       setLoading(false);
     }
   };
 
   // Thêm hàm xoá admin (tuỳ chọn)
-  const handleDeleteAdmin = (adminId) => {
+  const handleDeleteAdmin = async (adminId) => {
     try {
-      // Không cho phép xoá admin hiện tại
-      const currentAdminCCCD = localStorage.getItem('adminCCCD');
-      const adminToDelete = admins.find(admin => admin.id === adminId);
-      
-      if (adminToDelete.cccd === currentAdminCCCD) {
-        setSnackbar({
-          open: true,
-          message: 'Không thể xoá tài khoản admin hiện tại',
-          severity: 'error'
-        });
+      const adminToDelete = admins.find(admin => (admin._id || admin.id) === adminId);
+      if (!adminToDelete) {
+        showSnackbar('Không tìm thấy admin', 'error');
         return;
       }
-      
-      // Xác nhận xoá admin
       if (!window.confirm(`Bạn có chắc chắn muốn xoá admin "${adminToDelete.name}"?`)) {
         return;
       }
-      
-      // Xoá admin khỏi danh sách
-      const updatedAdmins = admins.filter(admin => admin.id !== adminId);
-      localStorage.setItem('admins', JSON.stringify(updatedAdmins));
-      setAdmins(updatedAdmins);
-      
-      // Xoá thông tin đăng nhập của admin
-      const loginData = JSON.parse(localStorage.getItem('loginData') || '{}');
-      delete loginData[adminToDelete.cccd];
-      localStorage.setItem('loginData', JSON.stringify(loginData));
-      
-      // Hiển thị thông báo thành công
-      setSnackbar({
-        open: true,
-        message: 'Xoá admin thành công',
-        severity: 'success'
+      const jwt = localStorage.getItem('jwt');
+      await axios.delete(`http://localhost:5000/api/admins/${adminId}`, {
+        headers: { Authorization: `Bearer ${jwt}` }
       });
+      await loadAdmins();
+      showSnackbar('Đã xoá admin thành công', 'success');
     } catch (error) {
+      const msg = error.response?.data?.error || 'Đã xảy ra lỗi khi xoá admin';
+      showSnackbar(msg, 'error');
       console.error('Error deleting admin:', error);
-      setSnackbar({
-        open: true,
-        message: 'Có lỗi xảy ra khi xoá admin',
-        severity: 'error'
-      });
     }
   };
 
   // Thêm function lọc ứng cử viên theo cuộc bầu cử
-  const filterCandidatesByElection = (electionId) => {
+  const filterCandidatesByElection = async (electionId) => {
     console.log('filterCandidatesByElection called with electionId:', electionId);
     
     // If no election selected, show all candidates
     if (!electionId) {
       console.log('No election selected, showing all candidates');
-      setFilteredCandidates(candidates);
+      setFilteredCandidates([]);
       setSelectedElectionForCandidates(null);
       return;
     }
@@ -1181,43 +1183,43 @@ function AdminDashboard() {
     const electionIdStr = String(electionId);
     setSelectedElectionForCandidates(electionIdStr);
     
-    // Get current candidates from localStorage to ensure we have the latest data
+    // Filter candidates trên state (KHÔNG lấy từ localStorage)
     try {
-      const storedCandidatesStr = localStorage.getItem('candidates');
-      const currentCandidates = storedCandidatesStr ? JSON.parse(storedCandidatesStr) : [];
-      
-      console.log(`Found ${currentCandidates.length} total candidates in localStorage`);
-      
-      // Filter candidates for the selected election
-      const filtered = currentCandidates.filter(candidate => 
-        candidate && candidate.electionId && String(candidate.electionId) === electionIdStr
-      );
-      
-      console.log(`Filtered to ${filtered.length} candidates for election ${electionIdStr}`);
-      
-      // Update filtered candidates
-      setFilteredCandidates(filtered);
-      
-      // Also update the main candidates array
-      setCandidates(currentCandidates);
+      const res = await axios.get(`http://localhost:5000/api/candidates?electionId=${electionIdStr}`);
+      setFilteredCandidates(res.data);
+      console.log(`Loaded ${res.data.length} candidates from backend for election ${electionIdStr}`);
     } catch (error) {
-      console.error('Error filtering candidates:', error);
       setFilteredCandidates([]);
+      showSnackbar('Không thể tải danh sách ứng cử viên', 'error');
     }
+    
+    // Also update the main candidates array
+    // setCandidates(currentCandidates); // This line is no longer needed as we are not fetching from localStorage here
   };
 
   // Xem kết quả bầu cử
   const handleViewResults = (electionId) => {
-    setSelectedElectionIdForResult(electionId);
-    setShowElectionResults(true);
-    setViewMode('results');
+    try {
+      // Tìm cuộc bầu cử bằng _id hoặc id (so sánh kiểu string)
+      const election = elections.find(e => String(e._id || e.id) === String(electionId));
+      if (!election) {
+        showSnackbar('Không tìm thấy cuộc bầu cử', 'error');
+        return;
+      }
+      // BỎ kiểm tra trạng thái completed
+      // Lưu electionId vào localStorage để ElectionResultsReport có thể đọc
+      localStorage.setItem('selectedElectionId', electionId);
+      // Chuyển hướng đến trang kết quả bầu cử
+      navigate(`/elections/${electionId}/results`);
+    } catch (error) {
+      console.error('Error viewing election results:', error);
+      showSnackbar('Đã xảy ra lỗi khi xem kết quả bầu cử', 'error');
+    }
   };
 
   // Hàm quay lại từ màn hình kết quả
   const handleBackFromResults = () => {
-    setShowElectionResults(false);
-    setSelectedElectionIdForResult(null);
-    setViewMode('elections');
+    navigate('/admin');
   };
 
   // Thêm chức năng chuyển đổi chế độ xem
@@ -1239,27 +1241,442 @@ function AdminDashboard() {
 
   // Thêm hàm renderContent để hiển thị nội dung dựa vào tab đang chọn
   const renderContent = () => {
-    if (showElectionResults && selectedElectionIdForResult) {
-  return (
-        <ElectionResultsReport 
-          electionId={selectedElectionIdForResult} 
-          onBack={handleBackFromResults} 
-        />
-      );
+    // Nếu không phải super admin, bỏ qua tab quản lý admin
+    if (!adminPermissions.isSuperAdmin) {
+      switch (activeTab) {
+        case 0:
+          return renderOverviewTab();
+        case 1:
+          return renderElectionsTab();
+        case 2:
+          return renderCandidatesTab();
+        case 3:
+          return renderVotersTab();
+        default:
+          return renderOverviewTab();
+      }
+    } else {
+      // Super admin có đầy đủ tabs
+      switch (activeTab) {
+        case 0:
+          return renderOverviewTab();
+        case 1:
+          return renderElectionsTab();
+        case 2:
+          return renderCandidatesTab();
+        case 3:
+          return renderAdminsTab();
+        case 4:
+          return renderVotersTab();
+        default:
+          return renderOverviewTab();
+      }
     }
+  };
 
-    switch (viewMode) {
-      case 'elections':
-        return renderElectionsTab();
-      case 'candidates':
-        return renderCandidatesTab();
-      case 'admins':
-        return renderAdminsTab();
-      case 'voters':
-        return renderVotersTab();
-      default:
-        return renderElectionsTab();
+  // Tab Tổng quan
+  const renderOverviewTab = () => {
+    const totalElections = elections.length;
+    const totalCandidates = allCandidates.length;
+    const totalVoters = voters.length;
+    
+    // Generate chart data with improved logic
+    let votesGrouped = {};
+    let labels = [];
+    let data = [];
+    
+    // Generate labels for the last 7 periods based on chartMode
+    const generateLabels = () => {
+      const today = new Date();
+      const labels = [];
+      
+      if (chartMode === 'day') {
+        for (let i = 6; i >= 0; i--) {
+          const date = new Date(today);
+          date.setDate(date.getDate() - i);
+          labels.push(format(date, 'dd/MM/yyyy'));
+        }
+      } else if (chartMode === 'week') {
+        for (let i = 6; i >= 0; i--) {
+          const date = new Date(today);
+          date.setDate(date.getDate() - (i * 7));
+          const week = getISOWeek(date);
+          const year = getYear(date);
+          labels.push(`Tuần ${week}/${year}`);
+        }
+      } else if (chartMode === 'month') {
+        for (let i = 6; i >= 0; i--) {
+          const date = new Date(today);
+          date.setMonth(date.getMonth() - i);
+          const month = date.getMonth() + 1;
+          const year = date.getFullYear();
+          labels.push(`${month < 10 ? '0' : ''}${month}/${year}`);
+        }
+      }
+      
+      return labels;
+    };
+    
+    // Generate labels first
+    labels = generateLabels();
+    
+    // Initialize data with zeros
+    data = new Array(labels.length).fill(0);
+    
+    // Group votes by chartMode
+    if (chartMode === 'day') {
+      votes.forEach(vote => {
+        if (vote.createdAt) {
+          const day = format(new Date(vote.createdAt), 'dd/MM/yyyy');
+          const index = labels.indexOf(day);
+          if (index !== -1) {
+            data[index]++;
+          }
+        }
+      });
+    } else if (chartMode === 'week') {
+      votes.forEach(vote => {
+        if (vote.createdAt) {
+          const d = new Date(vote.createdAt);
+          const week = getISOWeek(d);
+          const year = getYear(d);
+          const key = `Tuần ${week}/${year}`;
+          const index = labels.indexOf(key);
+          if (index !== -1) {
+            data[index]++;
+          }
+        }
+      });
+    } else if (chartMode === 'month') {
+      votes.forEach(vote => {
+        if (vote.createdAt) {
+          const d = new Date(vote.createdAt);
+          const month = d.getMonth() + 1;
+          const year = d.getFullYear();
+          const key = `${month < 10 ? '0' : ''}${month}/${year}`;
+          const index = labels.indexOf(key);
+          if (index !== -1) {
+            data[index]++;
+          }
+        }
+      });
     }
+    
+    const chartLabel = chartMode === 'day' ? 'ngày' : chartMode === 'week' ? 'tuần' : 'tháng';
+    
+    // Enhanced chart configuration
+    const chartData = {
+      labels,
+      datasets: [
+        {
+          label: `Số phiếu bầu theo ${chartLabel}`,
+          data,
+          fill: true,
+          backgroundColor: 'rgba(22, 147, 133, 0.1)',
+          borderColor: '#169385',
+          borderWidth: 3,
+          tension: 0.4,
+          pointBackgroundColor: '#169385',
+          pointBorderColor: '#fff',
+          pointBorderWidth: 2,
+          pointRadius: 6,
+          pointHoverRadius: 8,
+          pointHoverBackgroundColor: '#169385',
+          pointHoverBorderColor: '#fff',
+          pointHoverBorderWidth: 3
+        }
+      ]
+    };
+    
+    const chartOptions = {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          display: true,
+          position: 'top',
+          labels: {
+            color: darkMode ? '#fff' : '#222',
+            font: {
+              size: 14,
+              weight: '600'
+            },
+            padding: 20
+          }
+        },
+        tooltip: {
+          backgroundColor: darkMode ? '#333' : '#fff',
+          titleColor: darkMode ? '#fff' : '#222',
+          bodyColor: darkMode ? '#fff' : '#222',
+          borderColor: '#169385',
+          borderWidth: 1,
+          cornerRadius: 8,
+          displayColors: false,
+          callbacks: {
+            title: function(context) {
+              return `Thời gian: ${context[0].label}`;
+            },
+            label: function(context) {
+              return `Số phiếu: ${context.parsed.y}`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: {
+            color: darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+            drawBorder: false
+          },
+          ticks: {
+            color: darkMode ? '#fff' : '#222',
+            font: {
+              size: 12
+            }
+          }
+        },
+        y: {
+          beginAtZero: true,
+          grid: {
+            color: darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+            drawBorder: false
+          },
+          ticks: {
+            color: darkMode ? '#fff' : '#222',
+            font: {
+              size: 12
+            },
+            stepSize: 1,
+            callback: function(value) {
+              return Math.floor(value);
+            }
+          }
+        }
+      },
+      interaction: {
+        intersect: false,
+        mode: 'index'
+      },
+      elements: {
+        point: {
+          hoverRadius: 8
+        }
+      }
+    };
+    
+    const now = new Date();
+    const ongoingElections = elections.filter(e => new Date(e.endTime) > now).length;
+    const endedElections = elections.filter(e => new Date(e.endTime) <= now).length;
+    
+    return (
+      <Box>
+        {/* Statistics Cards */}
+        <Grid container spacing={3} mb={4}>
+          <Grid item xs={12} md={3}>
+            <Paper sx={{ 
+              p: 3, 
+              textAlign: 'center', 
+              background: 'linear-gradient(135deg, #e8f5e8 0%, #c8e6c9 100%)',
+              borderRadius: 3,
+              boxShadow: '0 4px 20px rgba(22, 147, 133, 0.15)',
+              border: '1px solid rgba(22, 147, 133, 0.2)',
+              transition: 'transform 0.2s, box-shadow 0.2s',
+              '&:hover': {
+                transform: 'translateY(-2px)',
+                boxShadow: '0 8px 30px rgba(22, 147, 133, 0.25)'
+              }
+            }}>
+              <Typography variant="h6" color="primary" sx={{ fontWeight: 600, mb: 1 }}>
+                Số cuộc bầu cử
+              </Typography>
+              <Typography variant="h3" color="primary" sx={{ fontWeight: 700 }}>
+                {totalElections}
+              </Typography>
+            </Paper>
+          </Grid>
+          <Grid item xs={12} md={3}>
+            <Paper sx={{ 
+              p: 3, 
+              textAlign: 'center', 
+              background: 'linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%)',
+              borderRadius: 3,
+              boxShadow: '0 4px 20px rgba(33, 150, 243, 0.15)',
+              border: '1px solid rgba(33, 150, 243, 0.2)',
+              transition: 'transform 0.2s, box-shadow 0.2s',
+              '&:hover': {
+                transform: 'translateY(-2px)',
+                boxShadow: '0 8px 30px rgba(33, 150, 243, 0.25)'
+              }
+            }}>
+              <Typography variant="h6" color="info.main" sx={{ fontWeight: 600, mb: 1 }}>
+                Đang diễn ra
+              </Typography>
+              <Typography variant="h3" color="info.main" sx={{ fontWeight: 700 }}>
+                {ongoingElections}
+              </Typography>
+            </Paper>
+          </Grid>
+          <Grid item xs={12} md={3}>
+            <Paper sx={{ 
+              p: 3, 
+              textAlign: 'center', 
+              background: 'linear-gradient(135deg, #fff3e0 0%, #ffcc02 100%)',
+              borderRadius: 3,
+              boxShadow: '0 4px 20px rgba(255, 152, 0, 0.15)',
+              border: '1px solid rgba(255, 152, 0, 0.2)',
+              transition: 'transform 0.2s, box-shadow 0.2s',
+              '&:hover': {
+                transform: 'translateY(-2px)',
+                boxShadow: '0 8px 30px rgba(255, 152, 0, 0.25)'
+              }
+            }}>
+              <Typography variant="h6" color="warning.main" sx={{ fontWeight: 600, mb: 1 }}>
+                Đã kết thúc
+              </Typography>
+              <Typography variant="h3" color="warning.main" sx={{ fontWeight: 700 }}>
+                {endedElections}
+              </Typography>
+            </Paper>
+          </Grid>
+          <Grid item xs={12} md={3}>
+            <Paper sx={{ 
+              p: 3, 
+              textAlign: 'center', 
+              background: 'linear-gradient(135deg, #f3e5f5 0%, #e1bee7 100%)',
+              borderRadius: 3,
+              boxShadow: '0 4px 20px rgba(156, 39, 176, 0.15)',
+              border: '1px solid rgba(156, 39, 176, 0.2)',
+              transition: 'transform 0.2s, box-shadow 0.2s',
+              '&:hover': {
+                transform: 'translateY(-2px)',
+                boxShadow: '0 8px 30px rgba(156, 39, 176, 0.25)'
+              }
+            }}>
+              <Typography variant="h6" color="secondary.main" sx={{ fontWeight: 600, mb: 1 }}>
+                Tổng phiếu bầu
+              </Typography>
+              <Typography variant="h3" color="secondary.main" sx={{ fontWeight: 700 }}>
+                {votes.length}
+              </Typography>
+            </Paper>
+          </Grid>
+        </Grid>
+        
+        {/* Chart Section */}
+        <Paper sx={{ 
+          p: 4, 
+          mt: 3,
+          background: darkMode ? 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)' : 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
+          borderRadius: 3,
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+          border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`
+        }}>
+          {/* Chart Header */}
+          <Box sx={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center', 
+            mb: 3,
+            flexWrap: 'wrap',
+            gap: 2
+          }}>
+            <Box>
+              <Typography variant="h5" color="primary" sx={{ fontWeight: 700, mb: 1 }}>
+                Biểu đồ thống kê phiếu bầu
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Theo dõi số lượng phiếu bầu theo thời gian
+              </Typography>
+            </Box>
+            
+            {/* Chart Mode Selector */}
+            <Box sx={{ 
+              display: 'flex', 
+              gap: 1,
+              p: 1,
+              bgcolor: darkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',
+              borderRadius: 2
+            }}>
+              <Button
+                variant={chartMode === 'day' ? 'contained' : 'outlined'}
+                size="small"
+                onClick={() => setChartMode('day')}
+                sx={{
+                  borderRadius: 2,
+                  textTransform: 'none',
+                  fontWeight: 600,
+                  minWidth: 80,
+                  ...(chartMode === 'day' && {
+                    background: 'linear-gradient(135deg, #169385 0%, #0f6b5f 100%)',
+                    boxShadow: '0 2px 8px rgba(22, 147, 133, 0.3)'
+                  })
+                }}
+              >
+                Ngày
+              </Button>
+              <Button
+                variant={chartMode === 'week' ? 'contained' : 'outlined'}
+                size="small"
+                onClick={() => setChartMode('week')}
+                sx={{
+                  borderRadius: 2,
+                  textTransform: 'none',
+                  fontWeight: 600,
+                  minWidth: 80,
+                  ...(chartMode === 'week' && {
+                    background: 'linear-gradient(135deg, #169385 0%, #0f6b5f 100%)',
+                    boxShadow: '0 2px 8px rgba(22, 147, 133, 0.3)'
+                  })
+                }}
+              >
+                Tuần
+              </Button>
+              <Button
+                variant={chartMode === 'month' ? 'contained' : 'outlined'}
+                size="small"
+                onClick={() => setChartMode('month')}
+                sx={{
+                  borderRadius: 2,
+                  textTransform: 'none',
+                  fontWeight: 600,
+                  minWidth: 80,
+                  ...(chartMode === 'month' && {
+                    background: 'linear-gradient(135deg, #169385 0%, #0f6b5f 100%)',
+                    boxShadow: '0 2px 8px rgba(22, 147, 133, 0.3)'
+                  })
+                }}
+              >
+                Tháng
+              </Button>
+            </Box>
+          </Box>
+          
+          {/* Chart Container */}
+          <Box sx={{ 
+            height: 400, 
+            position: 'relative',
+            '& canvas': {
+              borderRadius: 2
+            }
+          }}>
+            <Line data={chartData} options={chartOptions} />
+          </Box>
+          
+          {/* Chart Summary */}
+          <Box sx={{ 
+            mt: 3, 
+            p: 2, 
+            bgcolor: darkMode ? 'rgba(22, 147, 133, 0.1)' : 'rgba(22, 147, 133, 0.05)',
+            borderRadius: 2,
+            border: `1px solid ${darkMode ? 'rgba(22, 147, 133, 0.2)' : 'rgba(22, 147, 133, 0.1)'}`
+          }}>
+            <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center' }}>
+              Tổng số phiếu bầu trong {labels.length} {chartLabel} gần nhất: <strong>{data.reduce((sum, val) => sum + val, 0)}</strong> phiếu
+            </Typography>
+          </Box>
+        </Paper>
+      </Box>
+    );
   };
 
   // Tab Cuộc bầu cử
@@ -1290,73 +1707,50 @@ function AdminDashboard() {
                   <TableCell>Bắt đầu</TableCell>
                   <TableCell>Kết thúc</TableCell>
                   <TableCell>Trạng thái</TableCell>
-                  <TableCell align="center">Ứng cử viên</TableCell>
                   <TableCell align="center">Thao tác</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {elections.map((election) => {
                   const status = getElectionStatus(election);
-                  const candidateCount = candidates.filter(
-                    c => c.electionId && c.electionId.toString() === election.id.toString()
-                  ).length;
-                  
                   return (
-                    <TableRow key={election.id}>
+                    <TableRow key={election._id || election.id}>
                       <TableCell>{election.title}</TableCell>
                       <TableCell>{formatDate(election.startTime)}</TableCell>
                       <TableCell>{formatDate(election.endTime)}</TableCell>
-                      <TableCell>
-                        <Chip 
-                          label={getStatusText(status)} 
-                          color={getStatusColor(status)} 
-                          size="small" 
-                        />
-                      </TableCell>
-                      <TableCell align="center">{candidateCount}</TableCell>
+                      <TableCell>{getStatusText(status)}</TableCell>
                       <TableCell align="center">
-                        <ButtonGroup size="small">
+                        <ButtonGroup size="small" sx={{ '& .MuiButton-root': { borderRadius: 2, textTransform: 'none', fontWeight: 'medium', margin: 1 } }}>
                           <Button
                             variant="outlined"
-                            color="primary" 
-                            onClick={() => handleAddCandidate(election.id)}
-                            disabled={status !== 'upcoming'}
-                            startIcon={<PersonAddIcon />}
-                          >
-                            ỨCV
-                          </Button>
-                          
-                          <Button
-                            variant="outlined"
-                            color="info" 
-                            onClick={() => handleViewResults(election.id)}
+                            color="info"
+                            onClick={() => handleViewResults(election._id || election.id)}
                             startIcon={<AssessmentIcon />}
                           >
-                            Kết quả
                           </Button>
-                          
                           {status === 'active' && (
                             <Button
                               variant="outlined"
-                              color="success" 
-                              onClick={() => handleMarkCompleted(election.id)}
+                              color="success"
+                              onClick={() => handleMarkCompleted(election._id || election.id)}
                               startIcon={<DoneAllIcon />}
                             >
-                              Kết thúc
                             </Button>
                           )}
-                          
-                          {status !== 'active' && (
-                            <Button
-                              variant="outlined"
-                              color="error" 
-                              onClick={() => handleDeleteElection(election.id)}
-                              disabled={status === 'active'}
-                              startIcon={<DeleteIcon />}
-                            >
-                              Xóa
-                            </Button>
-                          )}
+                          <Button
+                            variant="outlined"
+                            color="primary"
+                            onClick={() => handleEditElection(election)}
+                            startIcon={<EditIcon />}
+                          >
+                          </Button>
+                          <Button
+                            variant="outlined"
+                            color="error"
+                            onClick={() => handleDeleteElection(election._id || election.id)}
+                            startIcon={<DeleteIcon />}
+                          >
+                          </Button>
                         </ButtonGroup>
                       </TableCell>
                     </TableRow>
@@ -1370,7 +1764,7 @@ function AdminDashboard() {
             Chưa có cuộc bầu cử nào. Hãy tạo cuộc bầu cử mới.
           </Alert>
         )}
-                  </Paper>
+      </Paper>
     );
   };
 
@@ -1389,8 +1783,8 @@ function AdminDashboard() {
                 label="Chọn cuộc bầu cử"
               >
                 {elections.map((election) => (
-                  <MenuItem key={election.id} value={election.id}>
-                            {election.title}
+                  <MenuItem key={election._id || election.id} value={election._id || election.id}>
+                    {election.title}
                   </MenuItem>
                 ))}
               </Select>
@@ -1404,77 +1798,82 @@ function AdminDashboard() {
                 Thêm ứng cử viên
               </Button>
             )}
-                          </Box>
-                        </Box>
+            {selectedElectionForCandidates && (
+              <Button
+                variant="outlined"
+                color="secondary"
+                onClick={() => setOpenImportDialog(true)}
+                sx={{ ml: 1 }}
+              >
+                Import Excel
+              </Button>
+            )}
+          </Box>
+        </Box>
 
         {loading ? (
           <Box display="flex" justifyContent="center" my={4}>
             <CircularProgress />
           </Box>
         ) : filteredCandidates && filteredCandidates.length > 0 ? (
-          <Grid container spacing={3}>
-            {filteredCandidates.map((candidate) => {
-              const election = elections.find(e => e && e.id && candidate.electionId && 
-                e.id.toString() === candidate.electionId.toString());
-              const status = election ? getElectionStatus(election) : 'unknown';
-              return (
-                <Grid item xs={12} sm={6} md={4} key={`${candidate.electionId}-${candidate.id}`}>
-                  <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-                    <CardMedia
-                      component="img"
-                      height="200"
-                      image={candidate.imageUrl || 'https://via.placeholder.com/300x200?text=Ứng+cử+viên'}
-                      alt={candidate.name}
-                    />
-                    <CardContent sx={{ flexGrow: 1 }}>
-                      <Typography variant="h6" gutterBottom>
-                        {candidate.name}
-                        </Typography>
-                      <Typography variant="body2" color="text.secondary" paragraph>
-                        {candidate.position || 'Chức vụ: Không có thông tin'}
-                        </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        <strong>Ngày sinh:</strong> {formatDate(candidate.birthDate)}
-                        </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        <strong>Quê quán:</strong> {candidate.hometown || 'Không có thông tin'}
-                        </Typography>
-                      <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                        {candidate.description && candidate.description.length > 100 
-                          ? `${candidate.description.substring(0, 100)}...` 
-                          : candidate.description || 'Không có mô tả'}
-                      </Typography>
-                    </CardContent>
-                    <CardActions>
-                          <Button 
-                        size="small" 
-                        onClick={() => handleViewCandidate(candidate)}
-                        sx={{ mr: 'auto' }}
+          <TableContainer>
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Ảnh</TableCell>
+                  <TableCell>Họ tên</TableCell>
+                  <TableCell>Ngày sinh</TableCell>
+                  <TableCell>Quê quán</TableCell>
+                  <TableCell>Chức vụ</TableCell>
+                  <TableCell align="right">Thao tác</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {(filteredCandidates || []).filter(Boolean).map((candidate) => (
+                  <TableRow key={candidate._id || candidate.id}>
+                    <TableCell>
+                      <Box
+                        component="img"
+                        src={candidate && candidate.imageUrl ? candidate.imageUrl : 'https://via.placeholder.com/100x100?text=?'}
+                        alt={candidate ? candidate.name : 'Ứng cử viên'}
+                        sx={{
+                          width: 100,
+                          height: 100,
+                          borderRadius: '8px',
+                          objectFit: 'cover',
+                          boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                          transition: 'transform 0.2s',
+                          '&:hover': {
+                            transform: 'scale(1.05)',
+                          }
+                        }}
+                      />
+                    </TableCell>
+                    <TableCell>{candidate.name}</TableCell>
+                    <TableCell>{formatDate(candidate.birthDate)}</TableCell>
+                    <TableCell>{candidate.hometown || 'Chưa cập nhật'}</TableCell>
+                    <TableCell>{candidate.position || 'Chưa cập nhật'}</TableCell>
+                    <TableCell align="right">
+                      <IconButton
+                        size="small"
+                        onClick={() => handleEditCandidate(candidate)}
+                        sx={{ color: 'primary.main', ml: 1 }}
                       >
-                        Xem chi tiết
-                          </Button>
-                      <Button 
-                    color="primary" 
+                        <EditIcon fontSize="small" />
+                      </IconButton>
+                      <IconButton
                         size="small"
-                        startIcon={<EditIcon fontSize="small" />}
-                    onClick={() => handleEditCandidate(candidate)}
-                  >
-                        Sửa
-                      </Button>
-                      <Button 
-                    color="error" 
-                        size="small"
-                        startIcon={<DeleteIcon fontSize="small" />}
-                    onClick={() => handleDeleteCandidate(candidate.id)}
-                  >
-                        Xóa
-                      </Button>
-                    </CardActions>
-                  </Card>
-                </Grid>
-              );
-            })}
-          </Grid>
+                        onClick={() => handleDeleteCandidate(candidate._id || candidate.id)}
+                        sx={{ color: 'error.main', ml: 1 }}
+                      >
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
         ) : (
           <Alert severity="info">
             {selectedElectionForCandidates 
@@ -1488,19 +1887,94 @@ function AdminDashboard() {
 
   // Tab Quản lý Admin
   const renderAdminsTab = () => {
+    // Hiển thị loading khi đang kiểm tra quyền
+    if (adminPermissions.isLoading) {
+      return (
+        <Paper sx={{ p: 4, maxWidth: 600, margin: 'auto' }}>
+          <Box sx={{ textAlign: 'center' }}>
+            <CircularProgress size={60} sx={{ color: '#169385', mb: 3 }} />
+            <Typography variant="h6" color="text.secondary">
+              Đang kiểm tra quyền truy cập...
+            </Typography>
+          </Box>
+        </Paper>
+      );
+    }
+
+    // Kiểm tra quyền super admin
+    if (!adminPermissions.isSuperAdmin) {
+      return (
+        <Paper sx={{ p: 4, maxWidth: 600, margin: 'auto' }}>
+          <Box sx={{ textAlign: 'center' }}>
+            <Box
+              sx={{
+                width: 80,
+                height: 80,
+                borderRadius: '50%',
+                background: 'linear-gradient(135deg, #ff9800, #f57c00)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                margin: '0 auto 2rem',
+                boxShadow: '0 8px 32px rgba(255, 152, 0, 0.3)',
+              }}
+            >
+              <LockIcon sx={{ fontSize: 40, color: 'white' }} />
+            </Box>
+            
+            <Typography variant="h5" sx={{ 
+              color: '#2d3748', 
+              fontWeight: 700, 
+              mb: 2,
+              background: 'linear-gradient(135deg, #ff9800, #f57c00)',
+              backgroundClip: 'text',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+            }}>
+              Quyền truy cập bị hạn chế
+            </Typography>
+            
+            <Typography variant="body1" color="text.secondary" sx={{ mb: 3, fontSize: 16, lineHeight: 1.6 }}>
+              Bạn không có quyền quản lý quản trị viên khác. Chức năng này chỉ dành cho Super Admin.
+            </Typography>
+            
+            <Alert 
+              severity="warning" 
+              sx={{ 
+                mb: 3, 
+                borderRadius: 2,
+                '& .MuiAlert-icon': { fontSize: 24 },
+                background: 'rgba(255, 152, 0, 0.1)',
+                border: '1px solid rgba(255, 152, 0, 0.3)',
+              }}
+            >
+              <Box>
+                <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>
+                  🔒 Chức năng bị khóa
+                </Typography>
+                <Typography variant="body2" sx={{ fontSize: 14 }}>
+                  • Thêm quản trị viên mới<br/>
+                  • Xem danh sách quản trị viên<br/>
+                  • Xóa quản trị viên khác
+                </Typography>
+              </Box>
+            </Alert>
+            
+            <Typography variant="body2" color="text.secondary" sx={{ fontSize: 14, opacity: 0.8 }}>
+              Nếu bạn cần quyền Super Admin, vui lòng liên hệ với quản trị viên hệ thống.
+            </Typography>
+          </Box>
+        </Paper>
+      );
+    }
+
+    // Hiển thị giao diện quản lý admin cho Super Admin
     return (
-      <Paper sx={{ p: 3 }}>
+      <Paper sx={{ p: 3, maxWidth: 900, margin: 'auto' }}>
         <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
           <Typography variant="h5">Quản lý Admin</Typography>
-            <Button 
-              variant="contained" 
-              onClick={() => setOpenAddAdminDialog(true)}
-              startIcon={<PersonAddIcon />}
-            >
-              Thêm quản trị viên mới
-            </Button>
-          </Box>
-          
+          <Button variant="contained" onClick={() => setOpenAddAdminDialog(true)} startIcon={<PersonAddIcon />}>Thêm quản trị viên mới</Button>
+        </Box>
         {loading ? (
           <Box display="flex" justifyContent="center" my={4}>
             <CircularProgress />
@@ -1518,18 +1992,15 @@ function AdminDashboard() {
               </TableHead>
               <TableBody>
                 {admins.map((admin) => (
-                  <TableRow key={admin.id}>
+                  <TableRow key={admin._id || admin.id}>
                     <TableCell>{admin.name}</TableCell>
                     <TableCell>{admin.cccd}</TableCell>
                     <TableCell>{admin.email}</TableCell>
                     <TableCell>
                       <Stack direction="row" spacing={1} justifyContent="center">
-                          <IconButton 
-                            color="error" 
-                            onClick={() => handleDeleteAdmin(admin.id)}
-                          >
+                        <IconButton color="error" onClick={() => handleDeleteAdmin(admin._id || admin.id)}>
                           <DeleteIcon fontSize="small" />
-                          </IconButton>
+                        </IconButton>
                       </Stack>
                     </TableCell>
                   </TableRow>
@@ -1538,9 +2009,7 @@ function AdminDashboard() {
             </Table>
           </TableContainer>
         ) : (
-          <Alert severity="info">
-            Chưa có quản trị viên nào. Hãy thêm quản trị viên mới.
-          </Alert>
+          <Alert severity="info">Chưa có quản trị viên nào. Hãy thêm quản trị viên mới.</Alert>
         )}
       </Paper>
     );
@@ -1549,11 +2018,10 @@ function AdminDashboard() {
   // Tab Quản lý Cử tri
   const renderVotersTab = () => {
     return (
-      <Paper sx={{ p: 3 }}>
+      <Paper sx={{ p: 3, maxWidth: 1200, margin: 'auto' }}>
         <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
           <Typography variant="h5">Quản lý cử tri</Typography>
         </Box>
-        
         {loading ? (
           <Box display="flex" justifyContent="center" my={4}>
             <CircularProgress />
@@ -1567,57 +2035,63 @@ function AdminDashboard() {
                   <TableCell>CCCD/CMND</TableCell>
                   <TableCell>Địa chỉ</TableCell>
                   <TableCell>Ngày sinh</TableCell>
-                  <TableCell>Trạng thái bầu cử</TableCell>
+                  <TableCell>Đã tham gia bầu cử</TableCell>
                   <TableCell align="center">Thao tác</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {voters.map((voter) => {
-                  // Lấy thông tin các cuộc bầu cử mà cử tri đã tham gia
-                  const voterVotedKey = `voter_${voter.cccd}_voted`;
-                  const votedElections = JSON.parse(localStorage.getItem(voterVotedKey) || '[]');
-                  
+                  // Lọc các phiếu bầu của cử tri này
+                  const votesOfVoter = allVotes.filter(v => v.voterId && (v.voterId._id === voter._id || v.voterId._id === voter.id || v.voterId.cccd === voter.cccd));
+                  // Nhóm theo electionId
+                  const electionIds = [...new Set(votesOfVoter.map(vote => vote.electionId?._id || vote.electionId || vote.electionId))];
                   return (
-                    <TableRow key={voter.cccd}>
+                    <TableRow key={voter._id || voter.id}>
                       <TableCell>{voter.fullName}</TableCell>
                       <TableCell>{voter.cccd}</TableCell>
                       <TableCell>{voter.address}</TableCell>
                       <TableCell>{formatDate(voter.birthDate)}</TableCell>
                       <TableCell>
-                        {votedElections.length > 0 ? (
+                        {electionIds.length > 0 ? (
                           <Box>
-                              <Chip 
-                              label={`Đã tham gia ${votedElections.length} cuộc bầu cử`} 
-                              color="success" 
-                                size="small" 
-                            />
-                            <Box mt={1}>
-                              {votedElections.map(electionId => {
-                                const election = elections.find(e => e.id === electionId);
-                                return election ? (
-                                  <Typography variant="caption" display="block" key={electionId}>
-                                    • {election.title}
-                                  </Typography>
-                                ) : null;
-                              })}
-                            </Box>
+                            <Typography variant="body2" color="success.main" sx={{ fontWeight: 600, mb: 1 }}>
+                              Đã tham gia {electionIds.length} cuộc bầu cử
+                            </Typography>
+                            {adminPermissions.isSuperAdmin && (
+                              <Button
+                                variant="outlined"
+                                size="small"
+                                onClick={() => handleViewVoterElections(voter)}
+                                sx={{
+                                  borderRadius: 2,
+                                  textTransform: 'none',
+                                  fontSize: '0.75rem',
+                                  py: 0.5,
+                                  px: 1.5,
+                                  borderColor: '#169385',
+                                  color: '#169385',
+                                  '&:hover': {
+                                    backgroundColor: 'rgba(22, 147, 133, 0.1)',
+                                    borderColor: '#169385'
+                                  }
+                                }}
+                              >
+                                Xem thêm
+                              </Button>
+                            )}
                           </Box>
                         ) : (
-                          <Chip 
-                            label="Chưa tham gia bầu cử" 
-                            color="default" 
-                            size="small" 
-                          />
+                          <Typography variant="caption" color="text.secondary">Chưa tham gia bầu cử nào</Typography>
                         )}
                       </TableCell>
                       <TableCell align="center">
-                        <IconButton 
-                          color="error" 
+                        <IconButton
+                          color={voter.isActive ? "warning" : "success"}
                           size="small"
-                          onClick={() => handleDeleteVoter(voter.cccd)}
-                          title="Xóa cử tri"
+                          onClick={() => handleToggleVoterActive(voter.cccd, voter.isActive)}
+                          title={voter.isActive ? "Khóa cử tri" : "Mở khóa cử tri"}
                         >
-                          <DeleteIcon fontSize="small" />
+                          {voter.isActive ? <LockIcon /> : <LockOpenIcon />}
                         </IconButton>
                       </TableCell>
                     </TableRow>
@@ -1635,110 +2109,79 @@ function AdminDashboard() {
     );
   };
 
-  // Thêm hàm để xử lý hoàn thành cuộc bầu cử
-  const handleMarkCompleted = (electionId) => {
+  // Hàm tính toán kết quả bầu cử thực tế
+  const calculateRealVotes = (electionId) => {
     try {
-      // Chuyển đổi id sang string để đảm bảo so sánh đúng
-      const idStr = electionId.toString();
-      
-      // Tìm cuộc bầu cử
-      const election = elections.find(e => e.id.toString() === idStr);
+      // Lấy danh sách ứng viên MỚI NHẤT từ state hoặc localStorage để đảm bảo tính đúng
+      const currentCandidates = JSON.parse(localStorage.getItem('candidates') || '[]');
+      const electionCandidates = currentCandidates.filter(c => c.electionId && c.electionId.toString() === electionId.toString());
+      const realVoteCounts = {};
+      let totalRealVotes = 0;
+
+      electionCandidates.forEach(candidate => {
+        // Đảm bảo ID là string để nhất quán
+        realVoteCounts[candidate.id.toString()] = 0;
+      });
+
+      // Lấy danh sách phiếu bầu từ localStorage
+      const storedVoters = JSON.parse(localStorage.getItem('voters') || '[]');
+
+      storedVoters.forEach(voter => {
+        const voteKey = `vote_${electionId}_${voter.cccd}`;
+        const voteData = localStorage.getItem(voteKey);
+        if (voteData) {
+           try {
+             const vote = JSON.parse(voteData);
+             if (vote && vote.candidateIds && vote.candidateIds.length > 0) {
+               const candidateId = vote.candidateIds[0].toString(); // Đảm bảo ID là string
+               // Chỉ đếm nếu ID ứng viên có trong danh sách ứng viên của cuộc bầu cử này
+               if (realVoteCounts.hasOwnProperty(candidateId)) {
+                 realVoteCounts[candidateId]++;
+                 totalRealVotes++;
+               } else {
+                  console.warn(`Vote from ${voter.cccd} for candidate ${candidateId} ignored (not in election ${electionId})`);
+               }
+             }
+           } catch (parseError) {
+             console.error(`Error parsing vote data for voter ${voter.cccd}: ${parseError}`);
+           }
+        }
+      });
+
+      console.log(`Calculated real votes for election ${electionId}:`, realVoteCounts, `Total: ${totalRealVotes}`);
+      return { realVoteCounts, totalRealVotes };
+
+    } catch (error) {
+      console.error(`Error calculating real votes for election ${electionId}:`, error);
+      return { realVoteCounts: {}, totalRealVotes: 0 };
+    }
+  };
+
+  // Thêm hàm để xử lý hoàn thành cuộc bầu cử
+  const handleMarkCompleted = async (electionId) => {
+    try {
+      if (!electionId) {
+        showSnackbar('Không xác định được ID cuộc bầu cử', 'error');
+        return;
+      }
+      // Tìm cuộc bầu cử bằng _id hoặc id (so sánh kiểu string)
+      const election = elections.find(e => String(e._id || e.id) === String(electionId));
       if (!election) {
         showSnackbar('Không tìm thấy cuộc bầu cử', 'error');
         return;
       }
-      
-      // Kiểm tra trạng thái
-      const status = getElectionStatus(election);
-      if (status !== 'active' && status !== 'upcoming') {
-        showSnackbar('Chỉ có thể đánh dấu hoàn thành cho các cuộc bầu cử đang diễn ra hoặc sắp diễn ra', 'error');
-        return;
-      }
-      
-      // Xác nhận
-      if (!window.confirm(`Bạn có chắc chắn muốn kết thúc cuộc bầu cử "${election.title}"?`)) {
-        return;
-      }
-      
-      // Cập nhật trạng thái hoàn thành
-      const updatedElection = {
-        ...election,
-        isCompleted: true,
-        status: 'completed'
-      };
-      
-      // Cập nhật danh sách
-      const updatedElections = elections.map(e => 
-        e.id.toString() === idStr ? updatedElection : e
-      );
-      
-      // Lưu vào localStorage
-      localStorage.setItem('elections', JSON.stringify(updatedElections));
-      setElections(updatedElections);
-      
-      // Tạo phiếu bầu mẫu nếu chưa có
-      const votesKey = `votes_${idStr}`;
-      const storedVotes = localStorage.getItem(votesKey);
-      if (!storedVotes || JSON.parse(storedVotes).length === 0) {
-        createSampleVotesForElection(idStr);
-      }
-      
-      showSnackbar(`Đã kết thúc cuộc bầu cử "${election.title}"`, 'success');
-      
-      // Hiển thị kết quả
-      handleViewResults(idStr);
+      // Gọi API backend để cập nhật trạng thái completed
+      const jwt = localStorage.getItem('jwt');
+      await axios.put(`http://localhost:5000/api/elections/${electionId}/complete`, {}, {
+        headers: { Authorization: `Bearer ${jwt}` }
+      });
+      await loadElections();
+      showSnackbar(`Đã kết thúc và tổng hợp kết quả cho cuộc bầu cử "${election.title}"`, 'success');
+      // Chuyển hướng sang trang kết quả
+      navigate(`/elections/${electionId}/results`);
     } catch (error) {
-      console.error('Lỗi khi đánh dấu hoàn thành cuộc bầu cử:', error);
-      showSnackbar('Đã xảy ra lỗi khi đánh dấu hoàn thành cuộc bầu cử', 'error');
-    }
-  };
-  
-  // Hàm tạo dữ liệu phiếu bầu mẫu cho cuộc bầu cử đã kết thúc
-  const createSampleVotesForElection = (electionId) => {
-    try {
-      // Kiểm tra xem đã có dữ liệu votes cho cuộc bầu cử này chưa
-      const existingVotes = localStorage.getItem(`votes_${electionId}`);
-      if (existingVotes) {
-        console.log(`Votes already exist for election ${electionId}:`, JSON.parse(existingVotes));
-        return; // Không tạo lại nếu đã có
-      }
-      
-      // Lấy các ứng cử viên thuộc cuộc bầu cử này
-      const electionCandidates = candidates.filter(c => c.electionId === electionId);
-      if (electionCandidates.length === 0) {
-        console.log(`No candidates found for election ${electionId}`);
-        return;
-      }
-      
-      // Tạo dữ liệu phiếu bầu ngẫu nhiên
-      const sampleVotes = {};
-      const totalVoters = Math.floor(Math.random() * 50) + 20; // Từ 20-70 cử tri
-      let remainingVoters = totalVoters;
-      
-      // Phân phối số phiếu cho các ứng cử viên
-      for (let i = 0; i < electionCandidates.length; i++) {
-        const candidate = electionCandidates[i];
-        
-        // Ứng cử viên cuối cùng nhận số phiếu còn lại
-        if (i === electionCandidates.length - 1) {
-          sampleVotes[candidate.id] = remainingVoters;
-        } else {
-          // Phân phối ngẫu nhiên nhưng hợp lý
-          const maxVotes = Math.min(remainingVoters, Math.floor(totalVoters / 2));
-          const votes = Math.floor(Math.random() * maxVotes);
-          sampleVotes[candidate.id] = votes;
-          remainingVoters -= votes;
-        }
-      }
-      
-      // Lưu vào localStorage
-      localStorage.setItem(`votes_${electionId}`, JSON.stringify(sampleVotes));
-      // Đánh dấu là đã hiển thị kết quả để trang chi tiết biết hiển thị kết quả
-      localStorage.setItem(`showResults_${electionId}`, 'true');
-      
-      console.log(`Created sample votes for election ${electionId}:`, sampleVotes);
-    } catch (error) {
-      console.error('Error creating sample votes:', error);
+      console.error('Error marking election as completed:', error);
+      showSnackbar('Đã xảy ra lỗi khi kết thúc cuộc bầu cử', 'error');
     }
   };
 
@@ -1757,479 +2200,1021 @@ function AdminDashboard() {
     setOpenViewCandidateDialog(true);
   };
 
+  // Thêm hàm utility để quản lý storage
+  const storageUtils = {
+    // Lấy thông tin ứng cử viên từ localStorage
+    getCandidates: () => {
+      try {
+        return JSON.parse(localStorage.getItem('candidates')) || [];
+      } catch (error) {
+        console.error('Error getting candidates:', error);
+        return [];
+      }
+    }
+  };
+
+  // Khôi phục lại hàm handleAddCandidate
+  const handleAddCandidate = (electionId) => {
+    if (!electionId) {
+      showSnackbar('Vui lòng chọn cuộc bầu cử trước khi thêm ứng cử viên', 'error');
+      return;
+    }
+    resetCandidateForm();
+    setSelectedElection(electionId.toString());
+    setCandidateFormData({
+      name: '',
+      birthDate: null,
+      hometown: '',
+      position: '',
+      achievements: '',
+      motto: '',
+      imageUrl: '',
+    });
+    setOpenCandidateDialog(true);
+  };
+
+  // Hàm upload ảnh ứng cử viên
+  const handleImageUpload = (event) => {
+    if (event.target.files && event.target.files[0]) {
+      const file = event.target.files[0];
+      if (file.size > 5 * 1024 * 1024) {
+        showSnackbar('Kích thước file không được vượt quá 5MB', 'error');
+        return;
+      }
+      optimizeImage(URL.createObjectURL(file), 600, 600).then(optimizedBase64 => {
+        const sizeInBytes = Math.ceil((optimizedBase64.length * 3) / 4) - (optimizedBase64.endsWith('==') ? 2 : optimizedBase64.endsWith('=') ? 1 : 0);
+        if (sizeInBytes > 2 * 1024 * 1024) {
+          showSnackbar('Ảnh sau nén vẫn lớn hơn 2MB, vui lòng chọn ảnh khác hoặc resize nhỏ hơn.', 'error');
+          return;
+        }
+        setCandidateFormData(prev => ({ ...prev, imageUrl: optimizedBase64 }));
+      });
+    }
+  };
+
+  // 2. Hàm mở dialog sửa election
+  const handleEditElection = (election) => {
+    setEditElectionData({ ...election });
+    setEditElectionFormData({
+      title: election.title || '',
+      description: election.description || '',
+      startTime: election.startTime ? new Date(election.startTime) : null,
+      endTime: election.endTime ? new Date(election.endTime) : null,
+      logoUrl: election.logoUrl || ''
+    });
+    setOpenEditElectionDialog(true);
+  };
+
+  // 3. Hàm xử lý submit sửa election
+  const handleUpdateElection = async () => {
+    console.log('Submitting update election', editElectionFormData);
+    try {
+      setCreating(true);
+      const { title, description, startTime, endTime, logoUrl } = editElectionFormData;
+      const { _id, id } = editElectionData;
+      if (!title) {
+        showSnackbar('Vui lòng nhập tiêu đề cuộc bầu cử', 'error');
+        setCreating(false);
+        return;
+      }
+      if (!startTime || !endTime) {
+        showSnackbar('Vui lòng chọn thời gian bắt đầu và kết thúc', 'error');
+        setCreating(false);
+        return;
+      }
+      if (startTime >= endTime) {
+        showSnackbar('Thời gian kết thúc phải sau thời gian bắt đầu', 'error');
+        setCreating(false);
+        return;
+      }
+      const jwt = localStorage.getItem('jwt');
+      await axios.put(`http://localhost:5000/api/elections/${_id || id}`, {
+        title,
+        description,
+        startTime,
+        endTime,
+        logoUrl
+      }, {
+        headers: { Authorization: `Bearer ${jwt}` }
+      });
+      setOpenEditElectionDialog(false);
+      setEditElectionData(null);
+      setEditElectionFormData({ title: '', description: '', startTime: null, endTime: null, logoUrl: '' });
+      await loadElections();
+      showSnackbar('Đã cập nhật cuộc bầu cử thành công', 'success');
+    } catch (error) {
+      console.error('Error updating election:', error);
+      showSnackbar(error?.response?.data?.error || 'Có lỗi xảy ra khi cập nhật cuộc bầu cử', 'error');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  // Hàm xử lý file excel
+  const handleExcelFile = (e) => {
+    setImportError('');
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const bstr = evt.target.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws, { defval: '' });
+        setImportedCandidates(data);
+      } catch (err) {
+        setImportError('File không hợp lệ hoặc sai định dạng!');
+        setImportedCandidates([]);
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  // Hàm import lên backend
+  const handleImportCandidates = async () => {
+    if (!selectedElectionForCandidates || importedCandidates.length === 0) return;
+    setImportLoading(true);
+    setImportError('');
+    try {
+      const jwt = localStorage.getItem('jwt');
+      for (const c of importedCandidates) {
+        await axios.post('http://localhost:5000/api/candidates', {
+          name: c.name || c["Tên"],
+          birthDate: c.birthDate ? new Date(c.birthDate).toISOString() : (c["Ngày sinh"] ? new Date(c["Ngày sinh"]).toISOString() : null),
+          hometown: c.hometown || c["Quê quán"],
+          position: c.position || c["Chức vụ"],
+          achievements: c.achievements || c["Những thành tựu"],
+          motto: c.motto || c["Lời tuyên bố"],
+          imageUrl: c.imageUrl || c["Ảnh"],
+          electionId: selectedElectionForCandidates
+        }, {
+          headers: { Authorization: `Bearer ${jwt}` }
+        });
+      }
+      setOpenImportDialog(false);
+      setImportedCandidates([]);
+      await loadCandidates(selectedElectionForCandidates);
+      showSnackbar('Import ứng cử viên thành công!', 'success');
+    } catch (err) {
+      setImportError('Có lỗi khi import ứng cử viên. Kiểm tra dữ liệu hoặc thử lại.');
+    } finally {
+      setImportLoading(false);
+    }
+  };
+
+  const loadVotes = async () => {
+    try {
+      const jwt = localStorage.getItem('jwt');
+      const res = await axios.get('http://localhost:5000/api/votes', {
+        headers: { Authorization: `Bearer ${jwt}` }
+      });
+      setVotes(res.data);
+    } catch (error) {
+      showSnackbar('Không thể tải danh sách phiếu bầu', 'error');
+      setVotes([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadAllCandidates = async () => {
+    try {
+      const res = await axios.get('http://localhost:5000/api/candidates');
+      setAllCandidates(res.data);
+    } catch (error) {
+      setAllCandidates([]);
+    }
+  };
+
+  // Thêm hàm handleViewCandidates nếu chưa có
+  const handleViewCandidates = (election) => {
+    setSelectedElection(election);
+    setViewMode('candidates');
+    setOpenCandidateDialog(true);
+  };
+
+  // Lấy tên và avatar admin từ localStorage (hoặc backend nếu có)
+  const adminName = localStorage.getItem('adminName') || 'Admin';
+  const adminAvatar = localStorage.getItem('adminAvatar') || '';
+  
+  // Hàm mở dialog xem chi tiết cuộc bầu cử của cử tri
+  const handleViewVoterElections = (voter) => {
+    if (!adminPermissions.isSuperAdmin) {
+      showSnackbar('Chỉ admin super mới có quyền xem chi tiết này', 'warning');
+      return;
+    }
+    
+    // Lọc các phiếu bầu của cử tri này
+    const votesOfVoter = allVotes.filter(v => v.voterId && (v.voterId._id === voter._id || v.voterId.id === voter.id || v.voterId.cccd === voter.cccd));
+    
+    // Lấy thông tin chi tiết các cuộc bầu cử
+    const voterElections = votesOfVoter.map(vote => {
+      const election = elections.find(e => (e._id || e.id) === (vote.electionId?._id || vote.electionId) || String(e._id || e.id) === String(vote.electionId?._id || vote.electionId));
+      return {
+        election,
+        voteDate: vote.createdAt,
+        voteId: vote._id || vote.id
+      };
+    }).filter(item => item.election); // Lọc bỏ những cuộc bầu cử không tìm thấy
+    
+    setSelectedVoterElections(voterElections);
+    setSelectedVoterName(voter.fullName);
+    setOpenVoterElectionsDialog(true);
+  };
+
+  // Theme động cho dark/light mode
+  const dynamicTheme = createTheme({
+    palette: {
+      mode: darkMode ? 'dark' : 'light',
+      primary: { main: '#169385', contrastText: '#fff' },
+      background: {
+        default: darkMode ? '#111' : '#f9fafe',
+        paper: darkMode ? '#181a20' : '#fff',
+        sidebar: darkMode ? '#222' : '#f5f7fa',
+      },
+      text: {
+        primary: darkMode ? '#fff' : '#222',
+        secondary: darkMode ? '#aaa' : '#555',
+        sidebar: darkMode ? '#fff' : '#169385',
+      },
+    },
+    typography: {
+      fontFamily: 'Roboto, Arial, sans-serif',
+      h4: { fontWeight: 700, fontSize: 36, letterSpacing: 1, color: darkMode ? '#fff' : '#169385' },
+      h5: { fontWeight: 600, fontSize: 24, color: darkMode ? '#fff' : '#169385' },
+      body1: { fontSize: 18, color: darkMode ? '#fff' : '#222' },
+      button: { fontWeight: 600, fontSize: 16 },
+    },
+    shape: { borderRadius: 4 },
+    components: {
+      MuiPaper: { styleOverrides: { root: { borderRadius: 4, boxShadow: '0 2px 8px 0 rgba(33,150,243,0.06)' } } },
+      MuiTableContainer: { styleOverrides: { root: { borderRadius: 4, boxShadow: '0 1px 4px 0 rgba(33,150,243,0.04)' } } },
+      MuiDialog: { styleOverrides: { paper: { borderRadius: 6 } } },
+      MuiButton: { styleOverrides: { root: { borderRadius: 4 } } },
+      MuiTab: { styleOverrides: { root: { borderRadius: 4, marginBottom: 6 } } },
+      MuiTableCell: { styleOverrides: { root: { borderRadius: 0 } } },
+      MuiTableRow: { styleOverrides: { root: { borderRadius: 0 } } },
+      MuiAvatar: { styleOverrides: { root: { borderRadius: 4 } } },
+    },
+  });
+
+  // Khi vào tab quản lý cử tri, gọi API lấy toàn bộ phiếu bầu
+  useEffect(() => {
+    if (activeTab === 4) { // tab Quản lý cử tri
+      const fetchVotes = async () => {
+        try {
+          setLoading(true);
+          const jwt = localStorage.getItem('jwt');
+          const res = await axios.get('http://localhost:5000/api/votes', {
+            headers: { Authorization: `Bearer ${jwt}` }
+          });
+          setAllVotes(res.data);
+        } catch (err) {
+          setAllVotes([]);
+        } finally {
+          setLoading(false);
+        }
+      };
+      fetchVotes();
+    }
+  }, [activeTab]);
+
   return (
-    <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
-      <Box sx={{ mb: 4 }}>
-        <Typography variant="h4" component="h1" gutterBottom>
-          Quản lý Hệ thống Bầu cử
-        </Typography>
-        <Divider />
-        </Box>
-
-      <Paper sx={{ mb: 4 }}>
-        <Tabs 
-          value={viewMode} 
-          onChange={(e, newValue) => handleViewModeChange(newValue)}
-          variant="fullWidth"
+    <ThemeProvider theme={dynamicTheme}>
+      <Box sx={{ display: 'flex', minHeight: '100vh' }}>
+        {/* Chatbot Component */}
+        <Chatbot />
+        
+        {/* Sidebar */}
+        <Box
+          component="nav"
+          sx={{
+            width: sidebarOpen ? 280 : 70,
+            flexShrink: 0,
+            transition: 'width 0.3s ease',
+            backgroundColor: 'background.sidebar',
+            borderRight: '1px solid #e0e0e0',
+            position: 'fixed',
+            height: '100vh',
+            zIndex: 1200,
+            overflow: 'hidden',
+          }}
         >
-          <Tab 
-            label="Cuộc bầu cử" 
-            value="elections" 
-            icon={<HowToVoteIcon />} 
-            iconPosition="start" 
-          />
-          <Tab 
-            label="Ứng cử viên" 
-            value="candidates" 
-            icon={<PeopleAltIcon />} 
-            iconPosition="start"
-          />
-          <Tab 
-            label="Cử tri" 
-            value="voters" 
-            icon={<HowToVoteIcon />} 
-            iconPosition="start"
-          />
-          <Tab 
-            label="Quản lý Admin" 
-            value="admins" 
-            icon={<PersonAddIcon />} 
-            iconPosition="start"
-          />
-        </Tabs>
-      </Paper>
-
-      {/* Nội dung dựa vào tab đang chọn */}
-      {renderContent()}
-
-      {/* Dialog tạo cuộc bầu cử */}
-      <Dialog 
-        open={openElectionDialog} 
-        onClose={() => setOpenElectionDialog(false)}
-        fullWidth
-        maxWidth="sm"
-      >
-        <NewElectionDialog
-          open={openElectionDialog}
-          onClose={() => setOpenElectionDialog(false)}
-          onSave={handleCreateElection}
-        />
-      </Dialog>
-
-      {/* Dialog thêm ứng cử viên */}
-      <Dialog open={openCandidateDialog} onClose={() => setOpenCandidateDialog(false)} maxWidth="md" fullWidth>
-        <DialogTitle>Thêm ứng cử viên mới</DialogTitle>
-        <DialogContent>
-          <DialogContentText sx={{ mb: 2 }}>
-            Nhập thông tin ứng cử viên cho cuộc bầu cử: {elections.find(e => e.id === selectedElection)?.title}
-          </DialogContentText>
-          
-          <Grid container spacing={2}>
-            <Grid item xs={12} md={6}>
-          <TextField
-                label="Họ và tên"
-            fullWidth
-                required
-            value={candidateFormData.name}
-                onChange={(e) => setCandidateFormData({...candidateFormData, name: e.target.value})}
-            margin="normal"
-                error={error.includes('tên')}
-              />
-              
-          <TextField
-            label="Quê quán"
-            fullWidth
-            value={candidateFormData.hometown}
-                onChange={(e) => setCandidateFormData({...candidateFormData, hometown: e.target.value})}
-            margin="normal"
-          />
-              
-          <TextField
-                label="Chức vụ/Vị trí"
-            fullWidth
-            value={candidateFormData.position}
-                onChange={(e) => setCandidateFormData({...candidateFormData, position: e.target.value})}
-            margin="normal"
-          />
-            </Grid>
-            
-            <Grid item xs={12} md={6}>
-              <LocalizationProvider dateAdapter={AdapterDateFns}>
-                <DatePicker
-                  label="Ngày sinh"
-                  value={candidateFormData.birthDate}
-                  onChange={(newValue) => setCandidateFormData({ ...candidateFormData, birthDate: newValue })}
-                  slotProps={{ textField: { fullWidth: true, margin: "normal" } }}
-                />
-              </LocalizationProvider>
-              
-          <TextField
-                label="Thành tựu"
-            fullWidth
-            value={candidateFormData.achievements}
-                onChange={(e) => setCandidateFormData({...candidateFormData, achievements: e.target.value})}
-            margin="normal"
-            multiline
-                rows={2}
-          />
-              
-          <TextField
-                label="Phương châm"
-            fullWidth
-            value={candidateFormData.motto}
-                onChange={(e) => setCandidateFormData({...candidateFormData, motto: e.target.value})}
-            margin="normal"
-          />
-            </Grid>
-            
-            <Grid item xs={12}>
-              <TextField
-                label="Mô tả"
-                fullWidth
-                multiline
-                rows={3}
-                value={candidateFormData.description || ''}
-                onChange={(e) => setCandidateFormData({...candidateFormData, description: e.target.value})}
-                margin="normal"
-              />
-            </Grid>
-            
-            <Grid item xs={12}>
-              <Typography variant="subtitle1" sx={{ mb: 1 }}>
-                Ảnh đại diện
-              </Typography>
-            <ImageUpload
-              value={candidateFormData.imageUrl}
-                onChange={(url) => setCandidateFormData({...candidateFormData, imageUrl: url})}
-              />
-            </Grid>
-          </Grid>
-          
-          {error && (
-            <Alert severity="error" sx={{ mt: 2 }}>
-              {error}
-            </Alert>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setOpenCandidateDialog(false)}>Hủy</Button>
-          <Button 
-            variant="contained" 
-            onClick={handleSaveCandidate}
-            disabled={creating}
+          {/* Logo nhỏ trên cùng */}
+          <Box sx={{ mb: 3, display: 'flex', alignItems: 'left', gap: 1, flexShrink: 0 }}>
+            {/* <img src="/logo192.png" alt="Logo" style={{ width: 40, height: 40, borderRadius: 8 }} /> */}
+            <Typography variant="h5" color="primary" sx={{ fontWeight: 700, ml: 2 }}>Quản trị viên</Typography>
+          </Box>
+          {/* Tabs sidebar */}
+          <Tabs
+            orientation="vertical"
+            value={activeTab}
+            onChange={(event, newValue) => {
+              // Kiểm tra quyền trước khi cho phép chuyển tab
+              if (newValue === 3 && !adminPermissions.isSuperAdmin) {
+                // Nếu cố gắng chọn tab quản lý admin mà không phải super admin
+                showSnackbar('Bạn không có quyền truy cập chức năng này', 'warning');
+                return;
+              }
+              setActiveTab(newValue);
+            }}
+            variant="scrollable"
+            sx={{ 
+              width: '100%', 
+              flex: 1,
+              overflow: 'auto',
+              '& .MuiTab-root': { 
+                alignItems: 'flex-start',
+                justifyContent: 'flex-start', 
+                fontWeight: 600, 
+                fontSize: 18, 
+                px: 2, 
+                py: 2, 
+                textAlign: 'flex-start', 
+                minHeight: 56, 
+                borderRadius: 2, 
+                mb: 1, 
+                transition: 'background 0.2s, color 0.2s', 
+                color: darkMode ? '#fff' : '#169385', 
+                background: darkMode ? '#222' : '#f5f7fa', 
+                '&.Mui-selected': { 
+                  background: darkMode ? '#111' : '#fff', 
+                  color: '#169385', 
+                  fontWeight: 700, 
+                  boxShadow: 1 
+                } 
+              } 
+            }}
           >
-            {creating ? 'Đang lưu...' : 'Lưu ứng cử viên'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+            <Tab icon={<AssessmentIcon />} iconPosition="start" label="Tổng quan" />
+            <Tab icon={<HowToVoteIcon />} iconPosition="start" label="Cuộc bầu cử" />
+            <Tab icon={<PeopleAltIcon />} iconPosition="start" label="Ứng cử viên" />
+            {!adminPermissions.isLoading && adminPermissions.isSuperAdmin && (
+              <Tab icon={<PersonAddIcon />} iconPosition="start" label="Quản lý Admin" />
+            )}
+            <Tab icon={<PeopleIcon />} iconPosition="start" label="Quản lý Cử tri" />
+          </Tabs>
+        </Box>
+        {/* Main content area */}
+        <Box sx={{ 
+          flex: 1, 
+          display: 'flex', 
+          flexDirection: 'column', 
+          minHeight: '100vh',
+          marginLeft: { xs: 0, md: '250px' }
+        }}>
+          {/* Header nhỏ trong layout quản trị */}
+          <Box sx={{ 
+            height: 64, 
+            bgcolor: darkMode ? '#111' : '#fff', 
+            boxShadow: 1, 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'space-between', 
+            px: 3,
+            flexShrink: 0,
+            position: 'sticky',
+            top: 0,
+            zIndex: 1000
+          }}>
+            <Typography variant="h5" color="primary" sx={{ fontWeight: 700 }}>Bảng điều khiển quản trị</Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              <IconButton onClick={() => setDarkMode((prev) => !prev)} color="primary" title={darkMode ? 'Chuyển sang giao diện sáng' : 'Chuyển sang giao diện tối'}>
+                {darkMode ? <Brightness7Icon /> : <Brightness4Icon />}
+              </IconButton>
+              <Avatar src={adminAvatar} alt={adminName} sx={{ width: 40, height: 40, bgcolor: '#169385' }}>{adminName[0]}</Avatar>
+              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                <Typography variant="body1" sx={{ fontWeight: 600, color: darkMode ? '#fff' : '#222' }}>{adminName}</Typography>
+                {adminPermissions.isLoading ? (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <CircularProgress size={12} sx={{ color: '#169385' }} />
+                    <Typography variant="caption" sx={{ color: '#666', fontSize: '0.7rem' }}>
+                      Đang kiểm tra quyền...
+                    </Typography>
+                  </Box>
+                ) : (
+                  <Chip 
+                    label={adminPermissions.isSuperAdmin ? 'Super Admin' : 'Admin'} 
+                    size="small" 
+                    color={adminPermissions.isSuperAdmin ? 'success' : 'primary'}
+                    sx={{ 
+                      height: 20, 
+                      fontSize: '0.7rem',
+                      fontWeight: 600,
+                    }} 
+                  />
+                )}
+              </Box>
+              <IconButton color="error" onClick={() => { localStorage.clear(); navigate('/admin'); }} title="Đăng xuất">
+                <LogoutIcon />
+              </IconButton>
+            </Box>
+          </Box>
+          {/* Content area bo góc, padding lớn, nền động */}
+          <Box sx={{ 
+            flex: 1, 
+            p: { xs: 1, sm: 3 }, 
+            bgcolor: darkMode ? '#181a20' : '#fff', 
+            borderRadius: 4, 
+            minHeight: 0, 
+            maxWidth: 'calc(100% - 32px)', 
+            margin: '0 auto', 
+            width: '100%',
+            overflow: 'auto',
+            height: 'calc(100vh - 64px)',
+            scrollbarWidth: 'thin',
+            scrollbarColor: darkMode ? '#444 #222' : '#ccc #fff',
+            '&::-webkit-scrollbar': {
+              width: '8px'
+            },
+            '&::-webkit-scrollbar-track': {
+              background: darkMode ? '#222' : '#f1f1f1',
+              borderRadius: '4px'
+            },
+            '&::-webkit-scrollbar-thumb': {
+              background: darkMode ? '#444' : '#c1c1c1',
+              borderRadius: '4px',
+              '&:hover': {
+                background: darkMode ? '#666' : '#a8a8a8'
+              }
+            }
+          }}>
+            {renderContent()}
+          </Box>
+        </Box>
+      </Box>
 
-      {/* Dialog sửa thông tin ứng cử viên */}
+      <Snackbar open={snackbar.open} autoHideDuration={6000} onClose={hideSnackbar}>
+        <Alert onClose={hideSnackbar} severity={snackbar.severity} sx={{ width: '100%' }}>
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
+
+      <NewElectionDialog
+        open={openElectionDialog}
+        onClose={() => setOpenElectionDialog(false)}
+        onSave={handleCreateElection}
+      />
+
+      <Dialog
+        open={openCandidateDialog}
+        onClose={() => setOpenCandidateDialog(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>{selectedElection ? 'Thêm ứng cử viên' : 'Thêm ứng cử viên'}</DialogTitle>
+        <DialogContent dividers>
+                <TextField
+                  label="Tên ứng cử viên"
+                  value={candidateFormData.name}
+            onChange={(e) => setCandidateFormData(prev => ({ ...prev, name: e.target.value }))}
+                  fullWidth
+                  margin="normal"
+                />
+          <LocalizationProvider dateAdapter={AdapterDateFns}>
+            <DatePicker
+                  label="Ngày sinh"
+              value={candidateFormData.birthDate}
+              onChange={(date) => setCandidateFormData(prev => ({ ...prev, birthDate: date }))}
+              slotProps={{ textField: { fullWidth: true, margin: "normal" } }}
+            />
+          </LocalizationProvider>
+                <TextField
+                  label="Quê quán"
+                  value={candidateFormData.hometown}
+            onChange={(e) => setCandidateFormData(prev => ({ ...prev, hometown: e.target.value }))}
+                  fullWidth
+                  margin="normal"
+                />
+                <TextField
+                  label="Chức vụ"
+                  value={candidateFormData.position}
+            onChange={(e) => setCandidateFormData(prev => ({ ...prev, position: e.target.value }))}
+                  fullWidth
+                  margin="normal"
+                />
+                <TextField
+                  label="Những thành tựu"
+                  value={candidateFormData.achievements}
+            onChange={(e) => setCandidateFormData(prev => ({ ...prev, achievements: e.target.value }))}
+                  fullWidth
+                  multiline
+                  rows={3}
+                  margin="normal"
+                />
+                <TextField
+                  label="Lời tuyên bố"
+                  value={candidateFormData.motto}
+            onChange={(e) => setCandidateFormData(prev => ({ ...prev, motto: e.target.value }))}
+                  fullWidth
+                  multiline
+                  rows={3}
+                  margin="normal"
+                />
+          <ImageUpload
+            imageUrl={candidateFormData.imageUrl}
+            onChange={img => setCandidateFormData(prev => ({ ...prev, imageUrl: img }))}
+            label="Ảnh ứng cử viên"
+          />
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setOpenCandidateDialog(false)}>Hủy</Button>
+            <LoadingButton
+              loading={creating}
+              onClick={handleSaveCandidate}
+              variant="contained"
+            >
+            {selectedElection ? 'Thêm ứng cử viên' : 'Thêm ứng cử viên'}
+            </LoadingButton>
+          </DialogActions>
+        </Dialog>
+
       <Dialog
         open={openEditCandidateDialog}
         onClose={() => setOpenEditCandidateDialog(false)}
-        maxWidth="md"
+        maxWidth="sm"
         fullWidth
       >
-        <DialogTitle>Sửa thông tin ứng cử viên</DialogTitle>
-        <DialogContent>
+        <DialogTitle>Sửa ứng cử viên</DialogTitle>
+        <form onSubmit={(e) => { e.preventDefault(); handleUpdateCandidate(); }}>
+          <DialogContent dividers>
+            <TextField
+              label="Tên ứng cử viên"
+              value={candidateFormData.name}
+              onChange={(e) => setCandidateFormData(prev => ({ ...prev, name: e.target.value }))}
+              fullWidth
+              margin="normal"
+            />
+            <LocalizationProvider dateAdapter={AdapterDateFns}>
+              <DatePicker
+                label="Ngày sinh"
+                value={candidateFormData.birthDate}
+                onChange={(date) => setCandidateFormData(prev => ({ ...prev, birthDate: date }))}
+                slotProps={{ textField: { fullWidth: true, margin: "normal" } }}
+              />
+            </LocalizationProvider>
+            <TextField
+              label="Quê quán"
+              value={candidateFormData.hometown}
+              onChange={(e) => setCandidateFormData(prev => ({ ...prev, hometown: e.target.value }))}
+              fullWidth
+              margin="normal"
+            />
+            <TextField
+              label="Chức vụ"
+              value={candidateFormData.position}
+              onChange={(e) => setCandidateFormData(prev => ({ ...prev, position: e.target.value }))}
+              fullWidth
+              margin="normal"
+            />
+            <TextField
+              label="Những thành tựu"
+              value={candidateFormData.achievements}
+              onChange={(e) => setCandidateFormData(prev => ({ ...prev, achievements: e.target.value }))}
+              fullWidth
+              multiline
+              rows={3}
+              margin="normal"
+            />
+            <TextField
+              label="Lời tuyên bố"
+              value={candidateFormData.motto}
+              onChange={(e) => setCandidateFormData(prev => ({ ...prev, motto: e.target.value }))}
+              fullWidth
+              multiline
+              rows={3}
+              margin="normal"
+            />
+            <ImageUpload
+              imageUrl={candidateFormData.imageUrl}
+              onChange={img => setCandidateFormData(prev => ({ ...prev, imageUrl: img }))}
+              label="Ảnh ứng cử viên"
+            />
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setOpenEditCandidateDialog(false)}>Hủy</Button>
+            <LoadingButton
+              type="submit"
+              loading={creating}
+              variant="contained"
+            >
+              Sửa ứng cử viên
+            </LoadingButton>
+          </DialogActions>
+        </form>
+      </Dialog>
+
+      <Dialog
+        open={openAddAdminDialog}
+        onClose={() => setOpenAddAdminDialog(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Thêm quản trị viên mới</DialogTitle>
+        <DialogContent dividers>
           {error && (
             <Alert severity="error" sx={{ mb: 2 }}>
               {error}
             </Alert>
           )}
-          
-          <Grid container spacing={2}>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Họ và tên ứng cử viên"
-                variant="outlined"
-                margin="normal"
-                value={candidateFormData.name}
-                onChange={(e) => setCandidateFormData({ ...candidateFormData, name: e.target.value })}
-                required
+          <TextField
+            label="Họ và tên"
+            value={adminFormData.name}
+            onChange={(e) => {
+              setAdminFormData(prev => ({ ...prev, name: e.target.value }));
+              if (adminFieldErrors.name) {
+                setAdminFieldErrors(prev => ({ ...prev, name: '' }));
+              }
+            }}
+            fullWidth
+            margin="normal"
+            error={!!adminFieldErrors.name}
+            helperText={adminFieldErrors.name}
+          />
+          <TextField
+            label="CCCD/CMND"
+            value={adminFormData.cccd}
+            onChange={(e) => {
+              setAdminFormData(prev => ({ ...prev, cccd: e.target.value }));
+              if (adminFieldErrors.cccd) {
+                setAdminFieldErrors(prev => ({ ...prev, cccd: '' }));
+              }
+            }}
+            fullWidth
+            margin="normal"
+            error={!!adminFieldErrors.cccd}
+            helperText={adminFieldErrors.cccd}
+          />
+          <TextField
+            label="Email"
+            value={adminFormData.email}
+            onChange={(e) => {
+              setAdminFormData(prev => ({ ...prev, email: e.target.value }));
+              if (adminFieldErrors.email) {
+                setAdminFieldErrors(prev => ({ ...prev, email: '' }));
+              }
+            }}
+            fullWidth
+            margin="normal"
+            error={!!adminFieldErrors.email}
+            helperText={adminFieldErrors.email}
+          />
+          <TextField
+            label="Mật khẩu"
+            type="password"
+            value={adminFormData.password}
+            onChange={(e) => {
+              setAdminFormData(prev => ({ ...prev, password: e.target.value }));
+              if (adminFieldErrors.password) {
+                setAdminFieldErrors(prev => ({ ...prev, password: '' }));
+              }
+            }}
+            fullWidth
+            margin="normal"
+            error={!!adminFieldErrors.password}
+            helperText={adminFieldErrors.password}
+          />
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={adminFormData.isSuperAdmin}
+                onChange={(e) => setAdminFormData(prev => ({ ...prev, isSuperAdmin: e.target.checked }))}
+                color="primary"
               />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <LocalizationProvider dateAdapter={AdapterDateFns}>
-              <DatePicker
-                label="Ngày sinh"
-                value={candidateFormData.birthDate}
-                onChange={(newValue) => setCandidateFormData({ ...candidateFormData, birthDate: newValue })}
-                  slotProps={{ textField: { fullWidth: true, margin: "normal" } }}
-              />
-              </LocalizationProvider>
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Quê quán"
-                variant="outlined"
-                margin="normal"
-                value={candidateFormData.hometown}
-                onChange={(e) => setCandidateFormData({ ...candidateFormData, hometown: e.target.value })}
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Chức vụ"
-                variant="outlined"
-                margin="normal"
-                value={candidateFormData.position}
-                onChange={(e) => setCandidateFormData({ ...candidateFormData, position: e.target.value })}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Mô tả"
-                variant="outlined"
-                margin="normal"
-                multiline
-                rows={3}
-                value={candidateFormData.description || ''}
-                onChange={(e) => setCandidateFormData({ ...candidateFormData, description: e.target.value })}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Thành tích"
-                variant="outlined"
-                margin="normal"
-                multiline
-                rows={3}
-                value={candidateFormData.achievements}
-                onChange={(e) => setCandidateFormData({ ...candidateFormData, achievements: e.target.value })}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Phương châm"
-                variant="outlined"
-                margin="normal"
-                value={candidateFormData.motto}
-                onChange={(e) => setCandidateFormData({ ...candidateFormData, motto: e.target.value })}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <Typography variant="subtitle1" gutterBottom sx={{ mt: 2 }}>
-                Ảnh ứng cử viên
-              </Typography>
-              <ImageUpload
-                value={candidateFormData.imageUrl}
-                onChange={(url) => setCandidateFormData({ ...candidateFormData, imageUrl: url })}
-                label="Ảnh ứng cử viên"
-              />
-            </Grid>
-          </Grid>
+            }
+            label="Là quản trị viên cao cấp"
+          />
         </DialogContent>
         <DialogActions>
-          <Button 
-            onClick={() => setOpenEditCandidateDialog(false)}
-            color="inherit"
-          >
-            Hủy
-          </Button>
+          <Button onClick={() => {
+            setOpenAddAdminDialog(false);
+            setAdminFormData({ name: '', cccd: '', email: '', password: '', isSuperAdmin: false });
+            setAdminFieldErrors({ name: '', cccd: '', email: '', password: '' });
+            setError('');
+          }}>Hủy</Button>
           <LoadingButton
-            loading={creating}
-            onClick={handleUpdateCandidate}
+            loading={loading}
+            onClick={handleAddAdmin}
             variant="contained"
           >
-            Cập nhật
+            Thêm quản trị viên
           </LoadingButton>
         </DialogActions>
       </Dialog>
 
-      {/* Dialog thêm admin mới */}
-      <Dialog open={openAddAdminDialog} onClose={() => setOpenAddAdminDialog(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Thêm quản trị viên mới</DialogTitle>
-        <DialogContent>
-          <Box sx={{ mt: 2 }}>
-          <TextField
-              label="Họ tên"
-            fullWidth
-            required
-              value={adminFormData.name}
-              onChange={(e) => setAdminFormData({...adminFormData, name: e.target.value})}
-              margin="normal"
-          />
-          <TextField
-              label="CCCD/CMND"
-            fullWidth
-            required
-              value={adminFormData.cccd}
-              onChange={(e) => setAdminFormData({...adminFormData, cccd: e.target.value})}
-              margin="normal"
-          />
-          <TextField
-            label="Email"
-              fullWidth
-              required
-            type="email"
-            value={adminFormData.email}
-              onChange={(e) => setAdminFormData({...adminFormData, email: e.target.value})}
-              margin="normal"
-          />
-          <TextField
-            label="Mật khẩu"
-              fullWidth
-              required
-            type="password"
-            value={adminFormData.password}
-              onChange={(e) => setAdminFormData({...adminFormData, password: e.target.value})}
-              margin="normal"
-            />
-            {error && (
-              <Alert severity="error" sx={{ mt: 2 }}>
-                {error}
-              </Alert>
-            )}
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setOpenAddAdminDialog(false)}>Hủy</Button>
-          <Button 
-            variant="contained"
-            onClick={handleAddAdmin}
-            disabled={creating}
-          >
-            {creating ? 'Đang thêm...' : 'Thêm admin'}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Dialog xem chi tiết ứng cử viên */}
       <Dialog
-        open={openViewCandidateDialog}
-        onClose={() => setOpenViewCandidateDialog(false)}
+        open={openEditElectionDialog}
+        onClose={() => setOpenEditElectionDialog(false)}
         maxWidth="md"
         fullWidth
       >
-        {selectedCandidate && (
-          <>
-            <DialogTitle>
-              Thông tin chi tiết ứng cử viên
-              <IconButton
-                aria-label="close"
-                onClick={() => setOpenViewCandidateDialog(false)}
-                sx={{
-                  position: 'absolute',
-                  right: 8,
-                  top: 8,
-                }}
-              >
-                <CloseIcon />
-              </IconButton>
-            </DialogTitle>
-            <DialogContent dividers>
-              <Grid container spacing={3}>
-                <Grid item xs={12} md={4}>
-                  {selectedCandidate.imageUrl ? (
-                    <Box
-                      component="img"
-                      src={selectedCandidate.imageUrl}
-                      alt={selectedCandidate.name}
-                      sx={{
-                        width: '100%',
-                        borderRadius: 2,
-                        maxHeight: 300,
-                        objectFit: 'cover',
-                      }}
-                    />
-                  ) : (
-                    <Box
-                      sx={{
-                        width: '100%',
-                        height: 200,
-                        bgcolor: 'grey.200',
-                        borderRadius: 2,
-                        display: 'flex',
-                        justifyContent: 'center',
-                        alignItems: 'center',
-                      }}
-                    >
-                      <Typography color="text.secondary">Không có ảnh</Typography>
-                    </Box>
-                  )}
-                </Grid>
-                <Grid item xs={12} md={8}>
-                  <Typography variant="h5" gutterBottom>
-                    {selectedCandidate.name}
-                  </Typography>
-                  
-                  <Typography variant="subtitle1" color="text.secondary" gutterBottom>
-                    {selectedCandidate.position || 'Không có chức vụ'}
-                  </Typography>
-                  
-                  <Divider sx={{ my: 2 }} />
-                  
-                  <Grid container spacing={2}>
-                    <Grid item xs={12} sm={6}>
-                      <Typography variant="body2">
-                        <strong>Ngày sinh:</strong> {formatDate(selectedCandidate.birthDate)}
-                      </Typography>
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <Typography variant="body2">
-                        <strong>Quê quán:</strong> {selectedCandidate.hometown || 'Không có thông tin'}
-                      </Typography>
-                    </Grid>
-                    
-                    <Grid item xs={12}>
-                      <Typography variant="body2" sx={{ mt: 1 }}>
-                        <strong>Cuộc bầu cử:</strong> {
-                          elections.find(e => e.id === selectedCandidate.electionId)?.title || 'Không xác định'
-                        }
-                      </Typography>
-                    </Grid>
-                    
-                    {selectedCandidate.description && (
-                      <Grid item xs={12}>
-                        <Typography variant="body2" sx={{ mt: 1 }}>
-                          <strong>Mô tả:</strong> {selectedCandidate.description}
-                        </Typography>
-                      </Grid>
-                    )}
-                    
-                    {selectedCandidate.achievements && (
-                      <Grid item xs={12}>
-                        <Typography variant="body2" sx={{ mt: 1 }}>
-                          <strong>Thành tích:</strong> {selectedCandidate.achievements}
-                        </Typography>
-                      </Grid>
-                    )}
-                    
-                    {selectedCandidate.motto && (
-                      <Grid item xs={12}>
-                        <Typography variant="body2" sx={{ mt: 2, fontStyle: 'italic', color: 'primary.main' }}>
-                          "{selectedCandidate.motto}"
-                        </Typography>
-                      </Grid>
-                    )}
-                  </Grid>
-                </Grid>
-              </Grid>
-            </DialogContent>
-            <DialogActions>
-              <Button onClick={() => setOpenViewCandidateDialog(false)}>
-                Đóng
-              </Button>
-        </DialogActions>
-          </>
-        )}
+        <DialogTitle>Sửa cuộc bầu cử</DialogTitle>
+        <form onSubmit={(e) => { e.preventDefault(); handleUpdateElection(); }}>
+          <DialogContent dividers sx={{ pb: 2, overflowY: 'auto' }}>
+            <TextField
+              label="Tiêu đề cuộc bầu cử"
+              value={editElectionFormData.title}
+              onChange={(e) => setEditElectionFormData(prev => ({ ...prev, title: e.target.value }))}
+              fullWidth
+              margin="normal"
+            />
+            <TextField
+              label="Mô tả"
+              value={editElectionFormData.description}
+              onChange={(e) => setEditElectionFormData(prev => ({ ...prev, description: e.target.value }))}
+              fullWidth
+              multiline
+              rows={4}
+              margin="normal"
+            />
+            <Box sx={{ mt: 2, mb: 3 }}>
+              <DateTimePicker
+                label="Thời gian bắt đầu"
+                value={editElectionFormData.startTime}
+                onChange={(date) => setEditElectionFormData(prev => ({ ...prev, startTime: date }))}
+                slotProps={{ textField: { fullWidth: true, margin: "normal" } }}
+                ampm={false}
+                format="dd/MM/yyyy HH:mm"
+              />
+              <DateTimePicker
+                label="Thời gian kết thúc"
+                value={editElectionFormData.endTime}
+                onChange={(date) => setEditElectionFormData(prev => ({ ...prev, endTime: date }))}
+                slotProps={{ textField: { fullWidth: true, margin: "normal" } }}
+                ampm={false}
+                format="dd/MM/yyyy HH:mm"
+              />
+            </Box>
+            <ImageUpload
+              imageUrl={editElectionFormData.logoUrl}
+              onChange={img => setEditElectionFormData(prev => ({ ...prev, logoUrl: img }))}
+              label="Logo cuộc bầu cử"
+            />
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setOpenEditElectionDialog(false)}>Hủy</Button>
+            <LoadingButton
+              type="submit"
+              loading={creating}
+              variant="contained"
+            >
+              Sửa cuộc bầu cử
+            </LoadingButton>
+          </DialogActions>
+        </form>
       </Dialog>
 
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={6000}
-        onClose={hideSnackbar}
-        message={snackbar.message}
-      />
-    </Container>
+      <Dialog
+        open={openViewCandidateDialog}
+        onClose={() => setOpenViewCandidateDialog(false)}
+        maxWidth="sm"
+              fullWidth
+      >
+        <DialogTitle>Chi tiết ứng cử viên</DialogTitle>
+        <DialogContent dividers>
+          {selectedCandidate ? (
+            <>
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                <Avatar
+                  src={selectedCandidate.imageUrl || 'https://via.placeholder.com/100x100?text=?'}
+                  alt={selectedCandidate.name}
+                  sx={{ width: 100, height: 100, mr: 2 }}
+                />
+                <Typography variant="h6">{selectedCandidate.name}</Typography>
+              </Box>
+              <Typography variant="body1">Ngày sinh: {formatDate(selectedCandidate.birthDate)}</Typography>
+              <Typography variant="body1">Quê quán: {selectedCandidate.hometown}</Typography>
+              <Typography variant="body1">Chức vụ: {selectedCandidate.position}</Typography>
+              <Typography variant="body1">Những thành tựu: {selectedCandidate.achievements}</Typography>
+              <Typography variant="body1">Lời tuyên bố: {selectedCandidate.motto}</Typography>
+            </>
+          ) : (
+            <Typography variant="body2" color="text.secondary">Không có dữ liệu ứng cử viên.</Typography>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenViewCandidateDialog(false)}>Đóng</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={openImportDialog}
+        onClose={() => setOpenImportDialog(false)}
+        maxWidth="sm"
+              fullWidth
+      >
+        <DialogTitle>Import ứng cử viên từ Excel</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body1">
+            Vui lòng chọn file Excel (.xlsx) chứa danh sách ứng cử viên.
+            File phải có các cột: Tên, Ngày sinh, Quê quán, Chức vụ, Những thành tựu, Lời tuyên bố, Ảnh.
+          </Typography>
+          <input
+            type="file"
+            accept=".xlsx"
+            onChange={handleExcelFile}
+            style={{ marginTop: '10px' }}
+          />
+          {importedCandidates.length > 0 && (
+            <Box sx={{ mt: 2 }}>
+              <Typography variant="subtitle2">Danh sách ứng cử viên đã tải lên:</Typography>
+              <List dense>
+                {importedCandidates.map((candidate, index) => (
+                  <ListItem key={index}>
+                    <ListItemText
+                      primary={`${candidate.name || candidate["Tên"]}`}
+                      secondary={`Ngày sinh: ${candidate.birthDate ? formatDate(new Date(candidate.birthDate)) : 'Chưa có'}`}
+                    />
+                  </ListItem>
+                ))}
+              </List>
+            </Box>
+          )}
+          {importError && (
+            <Alert severity="error" sx={{ mt: 2 }}>{importError}</Alert>
+          )}
+          </DialogContent>
+          <DialogActions>
+          <Button onClick={() => setOpenImportDialog(false)}>Hủy</Button>
+            <LoadingButton
+            loading={importLoading}
+            onClick={handleImportCandidates}
+              variant="contained"
+            disabled={importedCandidates.length === 0 || importError}
+            >
+            Import
+            </LoadingButton>
+          </DialogActions>
+        </Dialog>
+        
+        {/* Dialog xem chi tiết cuộc bầu cử của cử tri */}
+        <Dialog
+          open={openVoterElectionsDialog}
+          onClose={() => setOpenVoterElectionsDialog(false)}
+          maxWidth="md"
+          fullWidth
+          PaperProps={{
+            sx: {
+              borderRadius: 3,
+              background: darkMode ? 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)' : 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
+              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+              border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`
+            }
+          }}
+        >
+          <DialogTitle sx={{ 
+            background: 'linear-gradient(135deg, #169385 0%, #0f6b5f 100%)',
+            color: '#fff',
+            borderRadius: '12px 12px 0 0',
+            position: 'relative',
+            '&::before': {
+              content: '""',
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'rgba(255, 255, 255, 0.1)',
+              borderRadius: '12px 12px 0 0'
+            }
+          }}>
+            <Typography variant="h6" sx={{ fontWeight: 700, position: 'relative', zIndex: 1 }}>
+              Chi tiết cuộc bầu cử của cử tri: {selectedVoterName}
+            </Typography>
+          </DialogTitle>
+          
+          <DialogContent sx={{ 
+            p: 3,
+            background: darkMode ? 'rgba(255, 255, 255, 0.02)' : '#fff',
+            color: darkMode ? '#fff' : '#222'
+          }}>
+            {selectedVoterElections.length > 0 ? (
+              <Box>
+                <Typography variant="body1" sx={{ mb: 3, color: darkMode ? '#fff' : '#222' }}>
+                  Cử tri <strong>{selectedVoterName}</strong> đã tham gia {selectedVoterElections.length} cuộc bầu cử:
+                </Typography>
+                
+                <Grid container spacing={2}>
+                  {selectedVoterElections.map((item, index) => (
+                    <Grid item xs={12} key={index}>
+                      <Paper sx={{ 
+                        p: 2,
+                        background: darkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(22, 147, 133, 0.05)',
+                        borderRadius: 2,
+                        border: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(22, 147, 133, 0.2)'}`,
+                        transition: 'transform 0.2s, box-shadow 0.2s',
+                        '&:hover': {
+                          transform: 'translateY(-1px)',
+                          boxShadow: '0 4px 12px rgba(22, 147, 133, 0.15)'
+                        }
+                      }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+                          <Typography variant="h6" color="primary" sx={{ fontWeight: 600 }}>
+                            {item.election.title}
+                          </Typography>
+                          <Chip 
+                            label="Đã bỏ phiếu" 
+                            color="success" 
+                            size="small"
+                            sx={{ fontWeight: 600 }}
+                          />
+                        </Box>
+                        
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                          {item.election.description || 'Không có mô tả'}
+                        </Typography>
+                        
+                        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                          <Box>
+                            <Typography variant="caption" color="text.secondary">Thời gian bắt đầu:</Typography>
+                            <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                              {formatDate(item.election.startTime)}
+                            </Typography>
+                          </Box>
+                          
+                          <Box>
+                            <Typography variant="caption" color="text.secondary">Thời gian kết thúc:</Typography>
+                            <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                              {formatDate(item.election.endTime)}
+                            </Typography>
+                          </Box>
+                          
+                          <Box>
+                            <Typography variant="caption" color="text.secondary">Ngày bỏ phiếu:</Typography>
+                            <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                              {formatDate(item.voteDate)}
+                            </Typography>
+                          </Box>
+                        </Box>
+                        
+                        <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
+                          <Chip 
+                            label={`ID phiếu: ${item.voteId}`}
+                            size="small"
+                            variant="outlined"
+                            sx={{ fontSize: '0.7rem' }}
+                          />
+                          <Chip 
+                            label={`ID cuộc bầu cử: ${item.election._id || item.election.id}`}
+                            size="small"
+                            variant="outlined"
+                            sx={{ fontSize: '0.7rem' }}
+                          />
+                        </Box>
+                      </Paper>
+                    </Grid>
+                  ))}
+                </Grid>
+              </Box>
+            ) : (
+              <Box sx={{ textAlign: 'center', py: 4 }}>
+                <Typography variant="h6" color="text.secondary" sx={{ mb: 2 }}>
+                  Không có dữ liệu cuộc bầu cử
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Cử tri này chưa tham gia cuộc bầu cử nào hoặc dữ liệu không khả dụng.
+                </Typography>
+              </Box>
+            )}
+          </DialogContent>
+          
+          <DialogActions sx={{ 
+            p: 3,
+            background: darkMode ? 'rgba(255, 255, 255, 0.02)' : '#f8f9fa',
+            borderTop: `1px solid ${darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`
+          }}>
+            <Button 
+              onClick={() => setOpenVoterElectionsDialog(false)}
+              variant="outlined"
+              sx={{
+                borderRadius: 2,
+                textTransform: 'none',
+                fontWeight: 600,
+                borderColor: '#169385',
+                color: '#169385',
+                '&:hover': {
+                  backgroundColor: 'rgba(22, 147, 133, 0.1)',
+                  borderColor: '#169385'
+                }
+              }}
+            >
+              Đóng
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Component thông báo Rate Limit */}
+        <RateLimitNotification
+          open={rateLimitInfo.open}
+          onClose={hideRateLimitInfo}
+          message={rateLimitInfo.message}
+          code={rateLimitInfo.code}
+          retryAfter={rateLimitInfo.retryAfter}
+        />
+    </ThemeProvider>
   );
 }
 
-export default AdminDashboard; 
+export default AdminDashboard;

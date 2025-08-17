@@ -8,21 +8,30 @@ import {
   Box,
   Alert,
   CircularProgress,
+  Link,
+  InputAdornment,
+  IconButton,
+  useTheme
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
+import { Visibility, VisibilityOff } from '@mui/icons-material';
+import axios from 'axios';
 
 function AdminLogin() {
   const navigate = useNavigate();
+  const theme = useTheme();
   const [cccd, setCCCD] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     // Kiểm tra nếu đã đăng nhập admin, chuyển hướng đến trang quản trị
+    const jwt = localStorage.getItem('jwt');
     const isAdmin = localStorage.getItem('isAdmin') === 'true';
-    if (isAdmin) {
+    if (jwt && isAdmin) {
       navigate('/admin/dashboard');
     }
   }, [navigate]);
@@ -32,119 +41,192 @@ function AdminLogin() {
     setError('');
     setLoading(true);
     setSuccess(false);
-
     try {
-      // Kiểm tra CCCD và mật khẩu từ dữ liệu lưu trong localStorage
-      const loginData = JSON.parse(localStorage.getItem('loginData') || '{}');
-      
-      // Nếu chưa có dữ liệu, tạo dữ liệu mẫu admin mặc định
-      if (Object.keys(loginData).length === 0) {
-        // Admin mặc định
-        loginData['094303000777'] = {
-          password: 'NfEqnqX8',
-          isAdmin: true,
-          name: 'Admin System'
-        };
-        localStorage.setItem('loginData', JSON.stringify(loginData));
-      }
-      
-      // Kiểm tra thông tin đăng nhập
-      const userData = loginData[cccd];
-      
-      if (userData && userData.password === password && userData.isAdmin) {
-        // Lưu thông tin admin vào localStorage
-        localStorage.setItem('adminCCCD', cccd);
-        localStorage.setItem('adminName', userData.name);
+      // Gọi API backend để đăng nhập admin
+      const response = await axios.post('http://localhost:5000/api/admins/login', {
+        cccd,
+        password
+      });
+      const data = response.data;
+      if (data.token) {
+        localStorage.setItem('jwt', data.token);
         localStorage.setItem('isAdmin', 'true');
-        
-        // Đặt trạng thái thành công và đợi 1 giây trước khi chuyển hướng
+        localStorage.setItem('adminCCCD', data.admin.cccd);
+        localStorage.setItem('adminName', data.admin.name);
+        localStorage.setItem('adminEmail', data.admin.email);
+        if (data.admin.isSuperAdmin) {
+          localStorage.setItem('isSuperAdmin', 'true');
+        } else {
+          localStorage.removeItem('isSuperAdmin');
+        }
         setSuccess(true);
-        
-        setTimeout(() => {
-          // Chuyển hướng đến trang quản trị
-          navigate('/admin/dashboard');
-        }, 1000);
+        // Tắt timeout để tránh lỗi
+        // setTimeout(() => {
+        //   navigate('/admin/dashboard');
+        // }, 1000);
+        navigate('/admin/dashboard');
       } else {
         setError('CCCD hoặc mật khẩu không chính xác');
       }
     } catch (error) {
-      console.error('Login error:', error);
-      setError('Đã xảy ra lỗi khi đăng nhập. Vui lòng thử lại.');
+      // Xử lý rate limit errors
+      if (error.response?.status === 429) {
+        const rateLimitMessage = error.response?.data?.error || 'Quá nhiều lần đăng nhập thất bại, vui lòng thử lại sau';
+        setError(rateLimitMessage);
+      } else {
+        setError(error.response?.data?.error || 'Đã xảy ra lỗi khi đăng nhập. Vui lòng thử lại.');
+      }
     } finally {
       setLoading(false);
     }
   };
 
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    if (name === 'username') {
+      setCCCD(value);
+    } else if (name === 'password') {
+      setPassword(value);
+    }
+  };
+
   return (
-    <Container maxWidth="sm">
-      <Box sx={{ mt: 8, mb: 4 }}>
-        <Paper elevation={3} sx={{ p: 4 }}>
-          <Typography variant="h4" component="h1" gutterBottom align="center">
-            Đăng nhập Quản trị viên
+    <Container maxWidth="sm" sx={{ fontFamily: 'Roboto, Arial, sans-serif', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: '#f7fafd' }}>
+      <Box
+        sx={{
+          minHeight: '100vh',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'center',
+          alignItems: 'center',
+          py: 4,
+          width: '100%',
+        }}
+      >
+        <Paper 
+          elevation={4} 
+          sx={{ 
+            p: { xs: 2, sm: 4 },
+            borderRadius: 5,
+            background: 'linear-gradient(135deg, #fff 60%, rgba(22,147,133,0.1) 100%)',
+            boxShadow: '0 8px 32px 0 rgba(31, 135, 128, 0.1)',
+            border: '1px solid #e3eafc',
+            maxWidth: 420,
+            width: '100%',
+            transition: 'box-shadow 0.3s',
+          }}
+        >
+          <Typography 
+            variant="h4" 
+            component="h1" 
+            gutterBottom 
+            align="center"
+            sx={{ 
+              fontWeight: 700,
+              color: '#169385',
+              mb: 4,
+              letterSpacing: 1.2,
+              textShadow: '0 2px 8px rgba(66, 255, 246, 0.08)'
+            }}
+          >
+            Đăng nhập Admin
           </Typography>
-          
+
           {error && (
-            <Alert severity="error" sx={{ mb: 2 }}>
+            <Alert severity="error" sx={{ mb: 3, borderRadius: 2, fontSize: 16, textAlign: 'center' }}>
               {error}
             </Alert>
           )}
-          
+
           {success && (
-            <Alert severity="success" sx={{ mb: 2 }}>
+            <Alert severity="success" sx={{ mb: 2, borderRadius: 2, fontSize: 16, textAlign: 'center' }}>
               Đăng nhập thành công! Đang chuyển hướng...
             </Alert>
           )}
-          
+
           <form onSubmit={handleSubmit}>
             <TextField
               fullWidth
-              label="CCCD"
-              variant="outlined"
-              margin="normal"
+              label="Tên đăng nhập"
+              name="username"
               value={cccd}
-              onChange={(e) => setCCCD(e.target.value)}
+              onChange={handleChange}
+              margin="normal"
               required
-              placeholder="Nhập CCCD: 094303000777"
-              disabled={loading || success}
+              InputLabelProps={{ sx: { fontSize: 18, fontWeight: 500 } }}
+              sx={{ mb: 3, bgcolor: '#fafdff', borderRadius: 2, '& .MuiOutlinedInput-root': { borderRadius: 2, fontSize: 17, '&.Mui-focused fieldset': { borderColor: '#169385', boxShadow: '0 0 0 2px rgba(22,147,133,0.1)' } } }}
             />
             <TextField
               fullWidth
               label="Mật khẩu"
-              type="password"
-              variant="outlined"
-              margin="normal"
+              name="password"
+              type={showPassword ? 'text' : 'password'}
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={handleChange}
+              margin="normal"
               required
-              placeholder="Nhập mật khẩu: NfEqnqX8"
-              disabled={loading || success}
+              InputLabelProps={{ sx: { fontSize: 18, fontWeight: 500 } }}
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      aria-label="toggle password visibility"
+                      onClick={() => setShowPassword(!showPassword)}
+                      edge="end"
+                    >
+                      {showPassword ? <VisibilityOff /> : <Visibility />}
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              }}
+              sx={{ mb: 3, bgcolor: '#fafdff', borderRadius: 2, '& .MuiOutlinedInput-root': { borderRadius: 2, fontSize: 17, '&.Mui-focused fieldset': { borderColor: '#169385', boxShadow: '0 0 0 2px rgba(22,147,133,0.1)' } } }}
             />
             <Button
               type="submit"
               fullWidth
               variant="contained"
-              color="primary"
               size="large"
-              sx={{ mt: 3 }}
-              disabled={loading || success}
+              disabled={loading}
+              sx={{
+                mt: 2,
+                mb: 3,
+                py: 1.7,
+                background: '#169385',
+                borderRadius: 3,
+                fontSize: '1.15rem',
+                fontWeight: 700,
+                letterSpacing: 1.1,
+                boxShadow: '0 4px 16px 0 rgba(25,118,210,0.10)',
+                transition: 'all 0.2s',
+                '&:hover': {
+                  background: '#169385',
+                  boxShadow: '0 8px 24px 0 rgba(115, 255, 229, 0.18)',
+                }
+              }}
             >
-              {loading ? (
-                <CircularProgress size={24} color="inherit" />
-              ) : success ? (
-                'Đã đăng nhập'
-              ) : (
-                'Đăng nhập'
-              )}
+              {loading ? <CircularProgress size={24} /> : 'Đăng nhập'}
             </Button>
           </form>
-          
-          <Box sx={{ mt: 3, textAlign: 'center' }}>
-            <Button
-              color="primary"
-              onClick={() => navigate('/')}
-            >
-              Quay lại trang chủ
-            </Button>
+
+          <Box sx={{ textAlign: 'center', mt: 2 }}>
+            <Typography variant="body2" color="text.secondary">
+              Quay lại{' '}
+              <Link 
+                component="button"
+                variant="body2"
+                onClick={() => navigate('/')}
+                sx={{ 
+                  color: '#169385',
+                  fontWeight: 600,
+                  textDecoration: 'none',
+                  '&:hover': {
+                    textDecoration: 'underline'
+                  }
+                }}
+              >
+                trang chủ
+              </Link>
+            </Typography>
           </Box>
         </Paper>
       </Box>
